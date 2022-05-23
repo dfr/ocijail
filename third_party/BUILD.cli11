@@ -1,0 +1,8 @@
+# -*- bazel-build -*-
+
+cc_library(
+    name = "cli11",
+    hdrs = glob(["include/CLI/*.hpp"]),
+    strip_include_prefix = "include",
+    visibility = ["//visibility:public"],
+)
