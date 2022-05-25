@@ -28,15 +28,8 @@ delete_::delete_(main_app& app) : app_(app) {
 }
 
 void delete_::run() {
-    auto state_dir = app_.state_db_ / id_;
-    auto state_path = state_dir / "state.json";
-
-    if (!fs::is_directory(state_dir)) {
-        throw std::runtime_error("start: container " + id_ + " not found");
-    }
-
-    json state;
-    std::ifstream{state_path} >> state;
+    auto state = app_.get_runtime_state(id_);
+    state.load();
 
     // update state
     if (::kill(state["pid"], 0) < 0) {
@@ -54,7 +47,7 @@ void delete_::run() {
         unmount_volumes(state, state["root_path"], state["config"]["mounts"]);
     }
 
-    fs::remove_all(state_dir);
+    state.remove_all();
 }
 
 }  // namespace ocijail

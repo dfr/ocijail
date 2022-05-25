@@ -57,21 +57,21 @@ void kill::run() {
         signum = SIGTERM;
     }
 
-    auto state_dir = app_.state_db_ / id_;
-    auto state_path = state_dir / "state.json";
+    auto state = app_.get_runtime_state(id_);
+    state.load();
 
-    if (!fs::is_directory(state_dir)) {
-        throw std::runtime_error("start: container " + id_ + " not found");
-    }
-
-    json state;
-    std::ifstream{state_path} >> state;
-
-    if (::kill(state["pid"], signum) < 0) {
-        throw std::system_error(
-            errno,
-            std::system_category(),
-            "sending signal to pid " + state["pid"].get<std::string>());
+    if (state["status"] == "created" || state["status"] == "running") {
+        if (::kill(state["pid"], signum) < 0) {
+            throw std::system_error(
+                errno,
+                std::system_category(),
+                "sending signal to pid " + state["pid"].get<std::string>());
+        }
+    } else {
+        std::stringstream ss;
+        ss << "not sending signal to container in with status \""
+           << state["status"] << "\"";
+        throw std::runtime_error(ss.str());
     }
 }
 

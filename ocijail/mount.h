@@ -6,11 +6,13 @@
 
 namespace ocijail {
 
-void mount_volumes(nlohmann::json& state,
+class runtime_state;
+
+void mount_volumes(runtime_state& state,
                    const std::filesystem::path& root_path,
                    const nlohmann::json& mounts);
 
-void unmount_volumes(nlohmann::json& state,
+void unmount_volumes(runtime_state& state,
                      const std::filesystem::path& root_path,
                      const nlohmann::json& mounts);
 

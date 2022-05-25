@@ -76,8 +76,9 @@ create::create(main_app& app) : app_(app) {
 }
 
 void create::run() {
-    auto state_dir = app_.state_db_ / id_;
-    if (app_.test_mode_ == test_mode::NONE && fs::is_directory(state_dir)) {
+    auto state = app_.get_runtime_state(id_);
+
+    if (app_.get_test_mode() == test_mode::NONE && state.exists()) {
         throw std::runtime_error{"container " + id_ + " exists"};
     }
 
@@ -189,13 +190,11 @@ void create::run() {
     }
 
     // Unit tests for config validation stop here.
-    if (app_.test_mode_ == test_mode::VALIDATION) {
+    if (app_.get_test_mode() == test_mode::VALIDATION) {
         return;
     }
 
     // Create a state object with initial fields from the config
-    json state;
-    state["id"] = id_;
     state["root_path"] = root_path;
     state["bundle"] = bundle_path_;
     state["config"] = config;
@@ -221,15 +220,14 @@ void create::run() {
     // need to create the start fifo before forking - this will be
     // used to pause the container until start is called.
     umask(077);
-    fs::create_directories(state_dir);
-    auto start_wait = state_dir / "start_wait";
+    state.create();
+    auto start_wait = state.get_state_dir() / "start_wait";
     if (mkfifo(start_wait.c_str(), 0600) < 0) {
         throw std::system_error{
             errno, std::system_category(), "error creating start fifo"};
     }
 
     auto pid = ::fork();
-    auto state_path = state_dir / "state.json";
     if (pid) {
         // Parent process - write to pid file if requested
         if (pid_file_) {
@@ -237,7 +235,7 @@ void create::run() {
         }
         state["jid"] = j.jid();
         state["pid"] = pid;
-        std::ofstream{state_path} << state;
+        state.save();
     } else {
         // Perform the console-socket hand off if process.terminal is true.
         auto [stdin_fd, stdout_fd, stderr_fd] = proc.pre_start();
@@ -260,7 +258,7 @@ void create::run() {
         // If start was called, we should be in state 'running'. TODO:
         // figure out the right semantics for kill and delete on
         // containers in 'created' state.
-        std::ifstream{state_path} >> state;
+        state.load();
         if (state["status"] != "running") {
             exit(0);
         }

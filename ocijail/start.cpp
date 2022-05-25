@@ -26,22 +26,16 @@ start::start(main_app& app) : app_(app) {
 }
 
 void start::run() {
-    auto state_dir = app_.state_db_ / id_;
-    auto state_path = state_dir / "state.json";
+    auto state = app_.get_runtime_state(id_);
+    state.load();
 
-    if (!fs::is_directory(state_dir)) {
-        throw std::runtime_error("start: container " + id_ + " not found");
-    }
-
-    json state;
-    std::ifstream{state_path} >> state;
     if (state["status"] != "created") {
         throw std::runtime_error("start: container not in 'created' state");
     }
     state["status"] = "running";
-    std::ofstream{state_path} << state;
+    state.save();
 
-    auto start_wait = state_dir / "start_wait";
+    auto start_wait = state.get_state_dir() / "start_wait";
     auto fd = ::open(start_wait.c_str(), O_RDWR);
     char ch = 0;
     if (fd < 0) {

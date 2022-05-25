@@ -4,8 +4,10 @@
 #include <sys/uio.h>
 #include <iostream>
 
+#include "ocijail/main.h"
 #include "ocijail/mount.h"
 
+using namespace std::literals::string_literals;
 namespace fs = std::filesystem;
 
 using nlohmann::json;
@@ -48,15 +50,15 @@ static std::map<std::string, int> name_to_flag = {
 };
 
 static std::tuple<fs::path, fs::path> get_save_path(
-    json& state,
+    const runtime_state& state,
     const fs::path& destination) {
     auto save_dir =
-        destination.parent_path() / (".save-" + state["id"].get<std::string>());
+        destination.parent_path() / (".save-"s + std::string{state.get_id()});
     auto save_path = save_dir / destination.filename();
     return std::make_tuple(save_dir, save_path);
 }
 
-static void mount_volume(json& state,
+static void mount_volume(runtime_state& state,
                          const fs::path& root_path,
                          const json& mount) {
     // We use fs::relative to strip off the leading '/' from destination
@@ -154,7 +156,7 @@ static void mount_volume(json& state,
     }
 }
 
-static void unmount_volume(json& state,
+static void unmount_volume(runtime_state& state,
                            const fs::path& root_path,
                            const json& mount) {
     // We use fs::relative to strip off the leading '/' from destination
@@ -180,13 +182,15 @@ static void unmount_volume(json& state,
     }
 }
 
-void mount_volumes(json& state, const fs::path& root_path, const json& mounts) {
+void mount_volumes(runtime_state& state,
+                   const fs::path& root_path,
+                   const json& mounts) {
     for (auto& mount : mounts) {
         mount_volume(state, root_path, mount);
     }
 }
 
-void unmount_volumes(json& state,
+void unmount_volumes(runtime_state& state,
                      const fs::path& root_path,
                      const json& mounts) {
     for (auto& mount : mounts) {

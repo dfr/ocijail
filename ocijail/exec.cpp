@@ -52,18 +52,12 @@ void exec::run() {
     process proc{process_json, console_socket_};
 
     // Unit tests for config validation stop here.
-    if (app_.test_mode_ == test_mode::VALIDATION) {
+    if (app_.get_test_mode() == test_mode::VALIDATION) {
         return;
     }
 
-    auto state_dir = app_.state_db_ / id_;
-    auto state_path = state_dir / "state.json";
-    json state;
-    std::ifstream{state_path} >> state;
-
-    if (!fs::is_directory(state_dir)) {
-        throw std::runtime_error("exec: container " + id_ + " not found");
-    }
+    auto state = app_.get_runtime_state(id_);
+    state.load();
 
     auto j = jail::find(int(state["jid"]));
 

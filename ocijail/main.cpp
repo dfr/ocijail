@@ -4,14 +4,11 @@
 #include <ctime>
 #include <iomanip>
 
-#include "ocijail/main.h"
-
-#include "nlohmann/json.hpp"
-
 #include "ocijail/create.h"
 #include "ocijail/delete.h"
 #include "ocijail/exec.h"
 #include "ocijail/kill.h"
+#include "ocijail/main.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
 
@@ -20,34 +17,6 @@ using nlohmann::json;
 
 int main(int argc, char** argv) {
     main_app app{"ocijail: Yet another OCI runtime"};
-    app.add_option("--state-db",
-                   app.state_db_,
-                   "Override default location for state database");
-
-    std::map<std::string, test_mode> test_modes{
-        {"none", test_mode::NONE},
-        {"validation", test_mode::VALIDATION},
-    };
-    app.add_option("--testing", app.test_mode_, "Unit test mode")
-        ->group("")
-        ->transform(CLI::CheckedTransformer(test_modes, CLI::ignore_case));
-
-    std::map<std::string, log_format> log_formats{
-        {"text", log_format::TEXT},
-        {"json", log_format::JSON},
-    };
-    app.add_option("--log-format", app.log_format_, "Log format")
-        ->transform(CLI::CheckedTransformer(log_formats, CLI::ignore_case));
-    app.add_option("--log", app.log_file_, "Log file");
-
-    app.require_subcommand(1);
-
-    app.parse_complete_callback([&app] {
-        if (app.log_file_) {
-            app.log_fd_ = ::open(
-                app.log_file_->c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);
-        }
-    });
 
     create::init(app);
     start::init(app);
@@ -74,6 +43,57 @@ void malformed_config(std::string_view message) {
     std::stringstream ss;
     ss << "create: malformed config: " << message;
     throw std::runtime_error(ss.str());
+}
+
+void runtime_state::create() {
+    std::filesystem::create_directories(state_dir_);
+}
+
+void runtime_state::remove_all() {
+    std::filesystem::remove_all(state_dir_);
+}
+
+void runtime_state::load() {
+    if (!std::filesystem::is_directory(state_dir_)) {
+        std::stringstream ss;
+        ss << "container " << id_ << " not found";
+        throw std::runtime_error(ss.str());
+    }
+    std::ifstream{state_json_} >> state_;
+}
+void runtime_state::save() {
+    std::ofstream{state_json_} << state_;
+}
+
+main_app::main_app(const std::string& title) : CLI::App(title) {
+    add_option("--state-db",
+               state_db_,
+               "Override default location for state database");
+
+    std::map<std::string, test_mode> test_modes{
+        {"none", test_mode::NONE},
+        {"validation", test_mode::VALIDATION},
+    };
+    add_option("--testing", test_mode_, "Unit test mode")
+        ->group("")
+        ->transform(CLI::CheckedTransformer(test_modes, CLI::ignore_case));
+
+    std::map<std::string, log_format> log_formats{
+        {"text", log_format::TEXT},
+        {"json", log_format::JSON},
+    };
+    add_option("--log-format", log_format_, "Log format")
+        ->transform(CLI::CheckedTransformer(log_formats, CLI::ignore_case));
+    add_option("--log", log_file_, "Log file");
+
+    require_subcommand(1);
+
+    parse_complete_callback([this] {
+        if (log_file_) {
+            log_fd_ =
+                ::open(log_file_->c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);
+        }
+    });
 }
 
 static std::string log_timestamp() {
