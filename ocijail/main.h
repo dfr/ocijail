@@ -21,6 +21,14 @@ enum class test_mode {
 };
 
 class runtime_state {
+    struct locked_state {
+        ~locked_state();
+        void unlock();
+        void lock();
+        bool locked_;
+        int fd_;
+    };
+
    public:
     runtime_state(const std::filesystem::path& dir, std::string_view id)
         : id_(id),
@@ -34,10 +42,11 @@ class runtime_state {
     auto exists() const { return std::filesystem::is_directory(state_dir_); }
     auto& get_state_dir() const { return state_dir_; }
 
-    void create();
+    locked_state create();
     void remove_all();
     void load();
     void save();
+    locked_state lock();
 
    private:
     std::string_view id_;

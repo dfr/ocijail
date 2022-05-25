@@ -57,6 +57,7 @@ void exec::run() {
     }
 
     auto state = app_.get_runtime_state(id_);
+    auto lk = state.lock();
     state.load();
 
     auto j = jail::find(int(state["jid"]));

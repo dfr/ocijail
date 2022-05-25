@@ -45,8 +45,38 @@ void malformed_config(std::string_view message) {
     throw std::runtime_error(ss.str());
 }
 
-void runtime_state::create() {
+runtime_state::locked_state::~locked_state() {
+    if (locked_) {
+        unlock();
+    }
+}
+
+void runtime_state::locked_state::unlock() {
+    assert(locked_);
+    locked_ = false;
+    if (::flock(fd_, LOCK_UN) < 0) {
+        throw std::system_error(
+            errno, std::system_category(), "unlocking state lock");
+    }
+}
+
+void runtime_state::locked_state::lock() {
+    assert(!locked_);
+    if (::flock(fd_, LOCK_EX) < 0) {
+        throw std::system_error(
+            errno, std::system_category(), "locking state lock");
+    }
+    locked_ = true;
+}
+
+runtime_state::locked_state runtime_state::create() {
     std::filesystem::create_directories(state_dir_);
+    auto fd = ::open(state_lock_.c_str(), O_RDWR | O_CREAT | O_EXLOCK);
+    if (fd < 0) {
+        throw std::system_error(
+            errno, std::system_category(), "opening state lock");
+    }
+    return {true, fd};
 }
 
 void runtime_state::remove_all() {
@@ -61,8 +91,22 @@ void runtime_state::load() {
     }
     std::ifstream{state_json_} >> state_;
 }
+
 void runtime_state::save() {
     std::ofstream{state_json_} << state_;
+}
+
+runtime_state::locked_state runtime_state::lock() {
+    auto fd = ::open(state_lock_.c_str(), O_RDWR | O_CREAT);
+    if (fd < 0) {
+        throw std::system_error(
+            errno, std::system_category(), "opening state lock");
+    }
+    if (::flock(fd, LOCK_EX) < 0) {
+        throw std::system_error(
+            errno, std::system_category(), "locking state lock");
+    }
+    return {true, fd};
 }
 
 main_app::main_app(const std::string& title) : CLI::App(title) {

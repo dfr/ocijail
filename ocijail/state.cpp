@@ -25,6 +25,7 @@ state::state(main_app& app) : app_(app) {
 
 void state::run() {
     auto state = app_.get_runtime_state(id_);
+    auto lk = state.lock();
     state.load();
 
     // update state

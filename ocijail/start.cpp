@@ -27,6 +27,7 @@ start::start(main_app& app) : app_(app) {
 
 void start::run() {
     auto state = app_.get_runtime_state(id_);
+    auto lk = state.lock();
     state.load();
 
     if (state["status"] != "created") {

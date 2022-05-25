@@ -220,7 +220,7 @@ void create::run() {
     // need to create the start fifo before forking - this will be
     // used to pause the container until start is called.
     umask(077);
-    state.create();
+    auto lk = state.create();
     auto start_wait = state.get_state_dir() / "start_wait";
     if (mkfifo(start_wait.c_str(), 0600) < 0) {
         throw std::system_error{
@@ -236,6 +236,7 @@ void create::run() {
         state["jid"] = j.jid();
         state["pid"] = pid;
         state.save();
+        lk.unlock();
     } else {
         // Perform the console-socket hand off if process.terminal is true.
         auto [stdin_fd, stdout_fd, stderr_fd] = proc.pre_start();
@@ -258,6 +259,7 @@ void create::run() {
         // If start was called, we should be in state 'running'. TODO:
         // figure out the right semantics for kill and delete on
         // containers in 'created' state.
+        auto lk2 = state.lock();
         state.load();
         if (state["status"] != "running") {
             exit(0);
