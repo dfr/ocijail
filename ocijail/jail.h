@@ -20,13 +20,14 @@ struct jail {
 
     static jail create(config& jconf);
     static jail find(const std::string& name);
+    static jail find(int jid) { return jail{jid}; }
 
-    jail(int jid) : jid_(jid) {}
     auto jid() const { return jid_; }
     void attach();
     void remove();
 
    private:
+    jail(int jid) : jid_(jid) {}
     static std::vector<iovec> get_iovec(config& jconf);
 
     int32_t jid_;

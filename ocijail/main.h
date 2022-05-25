@@ -30,4 +30,6 @@ struct main_app : public CLI::App {
     int log_fd_{2};
 };
 
+void malformed_config(std::string_view message);
+
 }  // namespace ocijail

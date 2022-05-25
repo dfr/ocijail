@@ -47,7 +47,7 @@ void delete_::run() {
         throw std::runtime_error("start: container not in 'stopped' state");
     }
 
-    auto j = jail(state["jid"]);
+    auto j = jail::find(int(state["jid"]));
     j.remove();
 
     if (state["config"].contains("mounts")) {

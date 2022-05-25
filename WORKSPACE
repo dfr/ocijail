@@ -2,9 +2,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
     name = "com_github_google_rules_install",
-    url = "https://github.com/dfr/bazel_rules_install/archive/refs/heads/main.zip",
+    url = "https://github.com/google/bazel_rules_install/archive/refs/heads/main.zip",
     strip_prefix = "bazel_rules_install-main",
-    sha256 = "e8dfe9d4e62a165c52d97b163649d05814f3540cf603703cb37dced31d253558",
+    sha256 = "abe36cbc10e2fa79624d17bd6beda7a03c51419158d2a9ba4627babbc549afee",
 )
 
 load("@com_github_google_rules_install//:deps.bzl", "install_rules_dependencies")

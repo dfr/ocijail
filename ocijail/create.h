@@ -3,8 +3,10 @@
 #include <filesystem>
 #include <optional>
 
-#include "main.h"
 #include "nlohmann/json.hpp"
+
+#include "ocijail/main.h"
+#include "ocijail/process.h"
 
 namespace ocijail {
 
@@ -14,10 +16,7 @@ struct create {
    private:
     create(main_app& app);
 
-    void malformed_config(std::string_view message);
     void run();
-    void reset_signals();
-    void set_uid_gid(const nlohmann::json& user);
 
     main_app& app_;
     std::filesystem::path bundle_path_{"."};

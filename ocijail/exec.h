@@ -18,6 +18,7 @@ struct exec {
     std::filesystem::path process_;
     std::optional<std::filesystem::path> console_socket_;
     std::optional<std::filesystem::path> pid_file_;
+    std::optional<bool> tty_;
     bool detach_{false};
 };
 

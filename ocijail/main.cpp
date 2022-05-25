@@ -68,6 +68,14 @@ int main(int argc, char** argv) {
     return 0;
 }
 
+namespace ocijail {
+
+void malformed_config(std::string_view message) {
+    std::stringstream ss;
+    ss << "create: malformed config: " << message;
+    throw std::runtime_error(ss.str());
+}
+
 static std::string log_timestamp() {
     struct ::timeval tv;
     struct std::tm now;
@@ -102,3 +110,5 @@ void main_app::log_error(const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n";
     }
 }
+
+}  // namespace ocijail

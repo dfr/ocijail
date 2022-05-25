@@ -1,5 +1,4 @@
 #include <fcntl.h>
-#include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <iostream>
@@ -8,6 +7,7 @@
 #include "ocijail/create.h"
 #include "ocijail/jail.h"
 #include "ocijail/mount.h"
+#include "ocijail/process.h"
 #include "ocijail/tty.h"
 
 namespace fs = std::filesystem;
@@ -75,13 +75,6 @@ create::create(main_app& app) : app_(app) {
     sub->final_callback([this] { run(); });
 }
 
-void create::malformed_config(std::string_view message) {
-    std::stringstream ss;
-    ss << "create: malformed config " << bundle_path_ / "config.json"
-       << ": " << message;
-    throw std::runtime_error(ss.str());
-}
-
 void create::run() {
     auto state_dir = app_.state_db_ / id_;
     if (app_.test_mode_ == test_mode::NONE && fs::is_directory(state_dir)) {
@@ -113,104 +106,7 @@ void create::run() {
     }
 
     auto& config_process = config["process"];
-    if (!config_process.is_object()) {
-        malformed_config("process must be an object");
-    }
-
-    if (!config_process.contains("cwd")) {
-        malformed_config("no process.cwd");
-    }
-    auto& config_process_cwd = config_process["cwd"];
-    if (!config_process_cwd.is_string()) {
-        malformed_config("process.cwd must be a string");
-    }
-
-    if (!config_process.contains("args")) {
-        malformed_config("no process.args");
-    }
-    auto& config_args = config_process["args"];
-    if (!config_args.is_array()) {
-        malformed_config("process.args must be an array");
-    }
-    if (config_args.size() == 0) {
-        malformed_config("process.args must have at least one element");
-    }
-    std::vector<std::string> args;
-    for (auto& arg : config_args) {
-        if (!arg.is_string()) {
-            malformed_config("process.args must be an array of strings");
-        }
-        args.push_back(arg.get<std::string>());
-    }
-
-    auto config_process_user = config_process["user"];
-    if (!config_process_user.is_null()) {
-        if (!config_process_user.is_object()) {
-            malformed_config("process.user must be an object");
-        }
-        if (!config_process_user["uid"].is_number()) {
-            malformed_config("process.user.uid must be a number");
-        }
-        if (!config_process_user["gid"].is_number()) {
-            malformed_config("process.user.gid must be a number");
-        }
-        if (config_process_user.contains("umask") &&
-            !config_process_user["umask"].is_number()) {
-            malformed_config("process.user.umask must be a number");
-        }
-        if (config_process_user.contains("additionalGids")) {
-            auto gids = config_process_user["additionalGids"];
-            if (!gids.is_array()) {
-                malformed_config(
-                    "process.user.additionalGids must be an array");
-            }
-            for (auto& gid : gids) {
-                if (!gid.is_number()) {
-                    malformed_config(
-                        "process.user.additionalGids must be an array of "
-                        "numbers");
-                }
-            }
-        }
-    }
-
-    std::vector<std::string> env;
-    if (config_process.contains("env")) {
-        auto& config_env = config_process["env"];
-        if (!config_env.is_array()) {
-            malformed_config("process.env must be an array");
-        }
-        for (auto& arg : config_env) {
-            if (!arg.is_string()) {
-                malformed_config("process.env must be an array of strings");
-            }
-            env.push_back(arg.get<std::string>());
-        }
-    }
-
-    bool config_process_terminal = false;
-    if (config_process.contains("terminal")) {
-        if (!config_process["terminal"].is_boolean()) {
-            malformed_config("process.terminal must be a boolean");
-        }
-        config_process_terminal = config_process["terminal"];
-    }
-    if (config_process_terminal) {
-        if (!console_socket_) {
-            throw std::runtime_error{
-                "create: --console-socket is required when "
-                "process.terminal is true"};
-        }
-        if (!fs::is_socket(*console_socket_)) {
-            throw std::runtime_error{
-                "create: --console-socket must be a path to a local domain "
-                "socket"};
-        }
-    } else if (console_socket_) {
-        throw std::runtime_error(
-            "create: --console-socket provided but process.terminal is "
-            "false");
-    }
+    process proc{config_process, console_socket_};
 
     // If the config contains a root path, use that, otherwise the
     // bundle directory must have a subdirectory named "root"
@@ -332,7 +228,7 @@ void create::run() {
             errno, std::system_category(), "error creating start fifo"};
     }
 
-    auto pid = fork();
+    auto pid = ::fork();
     auto state_path = state_dir / "state.json";
     if (pid) {
         // Parent process - write to pid file if requested
@@ -344,16 +240,7 @@ void create::run() {
         std::ofstream{state_path} << state;
     } else {
         // Perform the console-socket hand off if process.terminal is true.
-        int stdin_fd, stdout_fd, stderr_fd;
-        if (config_process_terminal) {
-            auto [control_fd, tty_fd] = open_pty();
-            stdin_fd = stdout_fd = stderr_fd = tty_fd;
-            send_pty_control_fd(*console_socket_, control_fd);
-        } else {
-            stdin_fd = 0;
-            stdout_fd = 1;
-            stderr_fd = 2;
-        }
+        auto [stdin_fd, stdout_fd, stderr_fd] = proc.pre_start();
 
         // Wait for start to signal us via the fifo
         auto fd = open(start_wait.c_str(), O_RDWR);
@@ -378,111 +265,11 @@ void create::run() {
             exit(0);
         }
 
-        // Prepare the environment and arguments for execvp.
-        std::vector<char*> envv, argv;
-        for (auto& s : env) {
-            envv.push_back(const_cast<char*>(s.c_str()));
-        }
-        envv.push_back(nullptr);
-        for (auto& s : args) {
-            argv.push_back(const_cast<char*>(s.c_str()));
-        }
-        argv.push_back(nullptr);
-        environ = &envv[0];
-
         // Enter the jail and set the requested working directory.
         j.attach();
-        if (chdir(config_process_cwd.get<std::string>().c_str()) < 0) {
-            throw std::system_error{errno,
-                                    std::system_category(),
-                                    "error changing directory to" +
-                                        config_process_cwd.get<std::string>()};
-        }
 
-        // Unblock signals
-        reset_signals();
-
-        // Set the uid, gid etc.
-        set_uid_gid(config_process_user);
-
-        // Setup stdin, stdout and stderr. Close everything else.
-        if (stdin_fd != 0) {
-            ::dup2(stdin_fd, 0);
-        }
-        if (stdout_fd != 1) {
-            ::dup2(stdout_fd, 1);
-        }
-        if (stderr_fd != 2) {
-            ::dup2(stderr_fd, 2);
-        }
-        ::close_range(3, INT_MAX, CLOSE_RANGE_CLOEXEC);
-
-        // exec the requested command.
-        ::execvp(argv[0], &argv[0]);
-        throw std::system_error{errno,
-                                std::system_category(),
-                                "error executing container command " + args[0]};
-    }
-}
-
-void create::reset_signals() {
-    ::sigset_t mask;
-    ::sigfillset(&mask);
-    if (::sigprocmask(SIG_UNBLOCK, &mask, nullptr) < 0) {
-        throw std::system_error{
-            errno, std::system_category(), "setting signal mask"};
-    }
-    struct sigaction sa;
-    sa.sa_handler = SIG_DFL;
-    sa.sa_flags = 0;
-    ::sigemptyset(&sa.sa_mask);
-    for (int sig = 0; sig < NSIG; sig++) {
-        if (::sigaction(sig, &sa, nullptr) < 0 && errno != EINVAL) {
-            throw std::system_error{
-                errno, std::system_category(), "setting signal handler"};
-        }
-    }
-}
-
-void create::set_uid_gid(const json& user) {
-    std::vector<gid_t> gids;
-    uid_t uid;
-    gid_t gid;
-    mode_t umask = 077;
-
-    if (user.is_object()) {
-        uid = user["uid"];
-        gid = user["gid"];
-        gids.push_back(gid);
-        if (user.contains("additionalGids")) {
-            for (auto& gid : user["additionalGids"]) {
-                gids.push_back(gid);
-            }
-        }
-        if (user.contains("umask")) {
-            umask = user["umask"];
-        }
-    } else {
-        uid = 0;
-        gid = 0;
-        gids.push_back(gid);
-    }
-
-    if (::setgroups(gids.size(), &gids[0]) < 0) {
-        throw std::system_error{
-            errno, std::system_category(), "error calling setgroups"};
-    }
-    if (::setgid(gid) < 0) {
-        throw std::system_error{
-            errno, std::system_category(), "error calling getgid"};
-    }
-    if (::setuid(uid) < 0) {
-        throw std::system_error{
-            errno, std::system_category(), "error calling setuid"};
-    }
-    if (::umask(umask) < 0) {
-        throw std::system_error{
-            errno, std::system_category(), "error calling umask"};
+        // Execute the requested process inside the jail
+        proc.exec(stdin_fd, stdout_fd, stderr_fd);
     }
 }
 
