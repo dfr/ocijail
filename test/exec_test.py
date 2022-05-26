@@ -9,6 +9,8 @@ import tempfile
 import unittest
 
 class test_exec(unittest.TestCase):
+    "Parameter validation tests for exec"
+
     def process(self):
         return {
             "args": [
