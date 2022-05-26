@@ -5,6 +5,7 @@ import io
 import json
 import os
 import os.path
+import shutil
 import socket
 import subprocess
 import sys
@@ -131,6 +132,18 @@ class test_run(unittest.TestCase):
         ret, out = self.run_with_config(c)
         self.assertEqual(ret, 0)
         self.assertEqual(out, "Hello World\r\n")
+
+    def test_chroot(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["process"]["args"] = ["sh", "-c", "echo Hello World > /file"]
+            c["process"]["env"] = ["PATH=/rescue"]
+            ret, _ = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            with open(os.path.join(root_dir, "file"), "r") as f:
+                self.assertEqual(f.read(), "Hello World\n")
 
 if __name__ == "__main__":
     if os.getenv("OCIJAIL_PATH"):
