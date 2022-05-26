@@ -68,7 +68,7 @@ class main_app : public CLI::App {
     void log_error(const std::exception& e);
 
    private:
-    std::filesystem::path state_db_{"/var/db/ocijail"};
+    std::filesystem::path state_db_{"/var/run/ocijail"};
     test_mode test_mode_{test_mode::NONE};
     log_format log_format_{log_format::TEXT};
     std::optional<std::filesystem::path> log_file_;
