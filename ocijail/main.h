@@ -57,6 +57,21 @@ class runtime_state {
     // int lock_fd_{-1};
 };
 
+class main_app;
+
+struct log_entry {
+    log_entry(main_app& app) : app_(app) {}
+    ~log_entry();
+
+    template <typename T>
+    friend std::ostream& operator<<(const log_entry& log, T t) {
+        return log.ss_ << t;
+    }
+
+    main_app& app_;
+    mutable std::stringstream ss_;
+};
+
 class main_app : public CLI::App {
    public:
     main_app(const std::string& title);
@@ -64,8 +79,10 @@ class main_app : public CLI::App {
         return {state_db_ / id, id};
     }
     auto get_test_mode() const { return test_mode_; }
+    log_entry log() { return log_entry{*this}; }
     void log_error(const std::system_error& e);
     void log_error(const std::exception& e);
+    void log_message(const std::string& msg);
 
    private:
     std::filesystem::path state_db_{"/var/run/ocijail"};

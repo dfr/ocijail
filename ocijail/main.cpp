@@ -151,15 +151,23 @@ static std::string log_timestamp() {
     return ss.str();
 }
 
+log_entry::~log_entry() {
+    app_.log_message(ss_.str());
+}
+
 void main_app::log_error(const std::exception& e) {
+    log_message(e.what());
+}
+
+void main_app::log_message(const std::string& msg) {
     std::stringstream ss;
     switch (log_format_) {
     case log_format::TEXT:
-        ss << log_timestamp() << ": " << e.what() << "\n";
+        ss << log_timestamp() << ": " << msg << "\n";
         break;
     case log_format::JSON: {
         json err;
-        err["msg"] = e.what();
+        err["msg"] = msg;
         err["level"] = "error";
         err["time"] = log_timestamp();
         ss << err << "\n";
@@ -171,7 +179,7 @@ void main_app::log_error(const std::exception& e) {
 
     if (log_fd_ != 2) {
         // Copy to stderr
-        std::cerr << "Error: " << e.what() << "\n";
+        std::cerr << "Error: " << msg << "\n";
     }
 }
 

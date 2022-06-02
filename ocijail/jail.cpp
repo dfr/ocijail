@@ -64,20 +64,40 @@ void jail::remove() {
     }
 }
 
+void jail::_get(config& jconf) {
+    auto jiov = get_iovec(jconf);
+    if (jail_get(&jiov[0], jiov.size(), 0) < 0) {
+        throw std::system_error{
+            errno, std::system_category(), "error calling jail_get"};
+    }
+}
+
+void jail::_set(config& jconf) {
+    auto jiov = get_iovec(jconf);
+    if (jail_set(&jiov[0], jiov.size(), JAIL_UPDATE) < 0) {
+        throw std::system_error{
+            errno, std::system_category(), "error calling jail_set"};
+    }
+}
+
+static iovec string_to_iovec(const std::string& s) {
+    return {reinterpret_cast<void*>(const_cast<char*>(s.c_str())),
+            s.size() + 1};
+}
+
 std::vector<iovec> jail::get_iovec(config& jconf) {
     std::vector<iovec> jiov;
     jiov.reserve(2 * jconf.params_.size());
     for (auto& [key, val] : jconf.params_) {
-        jiov.emplace_back(
-            iovec{reinterpret_cast<void*>(const_cast<char*>(key.c_str())),
-                  key.size() + 1});
+        jiov.emplace_back(string_to_iovec(key));
         if (auto p = std::get_if<std::string>(&val)) {
-            jiov.emplace_back(
-                iovec{reinterpret_cast<void*>(const_cast<char*>(p->c_str())),
-                      p->size() + 1});
+            jiov.emplace_back(string_to_iovec(*p));
         } else if (auto p = std::get_if<uint32_t>(&val)) {
             jiov.emplace_back(
                 iovec{reinterpret_cast<void*>(p), sizeof(uint32_t)});
+        } else if (auto p = std::get_if<int32_t>(&val)) {
+            jiov.emplace_back(
+                iovec{reinterpret_cast<void*>(p), sizeof(int32_t)});
         } else if (auto p = std::get_if<std::monostate>(&val)) {
             jiov.emplace_back(iovec{nullptr, 0});
         } else if (auto p = std::get_if<ns>(&val)) {

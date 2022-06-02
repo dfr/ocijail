@@ -212,7 +212,13 @@ void create::run() {
     // Create the jail for our container. If we have a parent, attach
     // to that first.
     if (parent_jail) {
-        jail::find(*parent_jail).attach();
+        auto pj = jail::find(*parent_jail);
+        auto current_child_count = pj.get<uint32_t>("children.cur");
+        auto max_child_count = pj.get<uint32_t>("children.max");
+        if (current_child_count >= max_child_count) {
+            pj.set("children.max", current_child_count + 1);
+        }
+        pj.attach();
     }
     auto j = jail::create(jconf);
 
