@@ -164,12 +164,18 @@ void create::run() {
         }
     }
 
+    // Default to setting allow.chflags but disable if we have a
+    // parent jail where this is not set.
+    bool allow_chflags = true;
+
     // Get the parent jail name (if any).
     std::optional<std::string> parent_jail;
     if (config.contains("annotations")) {
         auto config_annotations = config["annotations"];
         if (config_annotations.contains("org.freebsd.parentJail")) {
             parent_jail = config_annotations["org.freebsd.parentJail"];
+            auto pj = jail::find(*parent_jail);
+            allow_chflags = pj.get<bool>("allow.chflags");
         }
     }
 
@@ -179,6 +185,9 @@ void create::run() {
     jconf.set("persist");
     jconf.set("enforce_statfs", 1u);
     jconf.set("allow.raw_sockets");
+    if (allow_chflags) {
+        jconf.set("allow.chflags");
+    }
     jconf.set("path", root_path);
     jconf.set("ip4", jail::INHERIT);
     jconf.set("ip6", jail::INHERIT);

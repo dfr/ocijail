@@ -40,6 +40,12 @@ struct jail {
         return std::get<T>(jconf.at(key));
     }
 
+    template <>
+    bool get<bool>(const std::string& key) {
+        auto val = get<uint32_t>(key);
+        return !!val;
+    }
+
     template <typename T>
     void set(const std::string& key, T val) {
         config jconf;
