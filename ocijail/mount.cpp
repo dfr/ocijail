@@ -44,6 +44,7 @@ static std::map<std::string, int> name_to_flag = {
     {"emptydir", MNT_EMPTYDIR},
 
     // ignore these
+    {"private", 0},
     {"rprivate", 0},
     {"rbind", 0},
     {"nodev", 0},
