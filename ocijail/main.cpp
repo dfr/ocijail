@@ -11,6 +11,7 @@
 #include "ocijail/main.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
+#include "ocijail/version.h"
 
 using namespace ocijail;
 using nlohmann::json;
@@ -116,7 +117,8 @@ main_app::main_app(const std::string& title) : CLI::App(title) {
     add_flag(
         "--version",
         [](size_t) {
-            std::cout << "0.1\n";
+            std::cout << "ocijail version 0.1\n";
+            std::cout << "commit: " << git_commit << "\n";
             std::exit(0);
         },
         "Print runtime version");

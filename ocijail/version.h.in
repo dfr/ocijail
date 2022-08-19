@@ -1,0 +1,5 @@
+namespace ocijail {
+
+static const char* git_commit = "%%GIT_COMMIT%%";
+
+}
