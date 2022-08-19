@@ -113,6 +113,13 @@ main_app::main_app(const std::string& title) : CLI::App(title) {
     add_option("--state-db",
                state_db_,
                "Override default location for state database");
+    add_flag(
+        "--version",
+        [](size_t) {
+            std::cout << "0.1\n";
+            std::exit(0);
+        },
+        "Print runtime version");
 
     std::map<std::string, test_mode> test_modes{
         {"none", test_mode::NONE},
