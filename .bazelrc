@@ -1,3 +1,2 @@
 build --spawn_strategy local
-build --override_repository=com_github_google_rules_install=/home/dfr/src/bazel_rules_install
 build --workspace_status_command=tools/git-status.sh
