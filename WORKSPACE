@@ -4,7 +4,7 @@ http_archive(
     name = "com_github_google_rules_install",
     url = "https://github.com/google/bazel_rules_install/archive/refs/heads/main.zip",
     strip_prefix = "bazel_rules_install-main",
-    sha256 = "abe36cbc10e2fa79624d17bd6beda7a03c51419158d2a9ba4627babbc549afee",
+    sha256 = "9e8d52e18e9a39a594e1ab4fb44eacf0139ad3710b56e85baa0a8d2c933b2d63",
 )
 
 load("@com_github_google_rules_install//:deps.bzl", "install_rules_dependencies")
