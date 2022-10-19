@@ -24,4 +24,5 @@ genrule(
         h=$$(grep ^STABLE_GIT_COMMIT bazel-out/stable-status.txt | cut -d' ' -f2); \
         sed -e 's/%%GIT_COMMIT%%/'$$h'/' < $< > $@
     """,
+    stamp = 1,
 )
