@@ -1,2 +1,3 @@
 build --spawn_strategy local
 build --workspace_status_command=tools/git-status.sh
+build --experimental_repository_disable_download --distdir=distfiles
