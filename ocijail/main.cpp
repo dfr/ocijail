@@ -15,6 +15,8 @@
 using namespace ocijail;
 using nlohmann::json;
 
+static const char* version = "0.1rc1";
+
 int main(int argc, char** argv) {
     main_app app{"ocijail: Yet another OCI runtime"};
 
@@ -116,7 +118,7 @@ main_app::main_app(const std::string& title) : CLI::App(title) {
     add_flag(
         "--version",
         [](size_t) {
-            std::cout << "ocijail version 0.1\n";
+            std::cout << "ocijail version " << ::version << "\n";
             std::exit(0);
         },
         "Print runtime version");
