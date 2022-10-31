@@ -29,6 +29,12 @@ delete_::delete_(main_app& app) : app_(app) {
 
 void delete_::run() {
     auto state = app_.get_runtime_state(id_);
+
+    // If some other process has already deleted the state, just return.
+    if (!state.exists()) {
+        return;
+    }
+
     auto lk = state.lock();
     state.load();
 
