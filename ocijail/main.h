@@ -46,6 +46,7 @@ class runtime_state {
     void remove_all();
     void load();
     void save();
+    nlohmann::json report() const;
     locked_state lock();
 
    private:

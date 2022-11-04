@@ -98,6 +98,21 @@ void runtime_state::save() {
     std::ofstream{state_json_} << state_;
 }
 
+json runtime_state::report() const {
+    json res;
+    res["ociVersion"] = "1.0.2";
+    res["id"] = id_;
+    res["status"] = state_["status"];
+    if (state_["status"] != "stopped") {
+        res["pid"] = state_["pid"];
+    }
+    res["bundle"] = state_["bundle"];
+    if (state_["config"].contains("annotations")) {
+        res["annotations"] = state_["config"]["annotations"];
+    }
+    return res;
+}
+
 runtime_state::locked_state runtime_state::lock() {
     auto fd = ::open(state_lock_.c_str(), O_RDWR | O_CREAT);
     if (fd < 0) {

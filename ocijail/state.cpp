@@ -34,18 +34,7 @@ void state::run() {
         state.save();
     }
 
-    json res;
-    res["ociVersion"] = "1.0.2";
-    res["id"] = id_;
-    res["status"] = state["status"];
-    if (state["status"] != "stopped") {
-        res["pid"] = state["pid"];
-    }
-    res["bundle"] = state["bundle"];
-    if (state["config"].contains("annotations")) {
-        res["annotations"] = state["config"]["annotations"];
-    }
-    std::cout << res;
+    std::cout << state.report();
 }
 
 }  // namespace ocijail
