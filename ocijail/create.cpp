@@ -181,7 +181,11 @@ void create::run() {
 
     // Create a jail config from the OCI config
     jail::config jconf;
-    jconf.set("name", id_);
+    if (parent_jail) {
+        jconf.set("name", *parent_jail + "." + id_);
+    } else {
+        jconf.set("name", id_);
+    }
     jconf.set("persist");
     jconf.set("enforce_statfs", 1u);
     jconf.set("allow.raw_sockets");
@@ -227,7 +231,6 @@ void create::run() {
         if (current_child_count >= max_child_count) {
             pj.set("children.max", current_child_count + 1);
         }
-        pj.attach();
     }
     auto j = jail::create(jconf);
 
