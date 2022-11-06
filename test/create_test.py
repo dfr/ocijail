@@ -196,6 +196,114 @@ class test_create(unittest.TestCase):
         self.check_bad_config(c)
         c["mounts"] = [{"destination": "/tmp", "options": ["opt1","opt2","opt3=42"]}]
         self.check_good_config(c)
+
+    def _test_hooks_sub(self, stage):
+        # if present, each hook stage must be an array
+        c = self.config()
+        c["hooks"] = {stage: "broken"}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: []}
+        self.check_good_config(c)
+
+        # each element of the array must be an object with a path
+        # attribute
+        c["hooks"] = {stage: ["broken"]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [[]]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [{"path": "/nonexistent/hook"}]}
+        self.check_good_config(c)
+
+        # if present, args must be an array of strings
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "args": "broken"
+            }
+        ]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "args": [42]
+            }
+        ]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "args": ["arg1"]
+            }
+        ]}
+        self.check_good_config(c)
+
+        # if present, env must be an array of strings
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "env": "broken"
+            }
+        ]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "env": [42]
+            }
+        ]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "env": ["env1"]
+            }
+        ]}
+        self.check_good_config(c)
+
+        # if present, timeout must be a number
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "timeout": "broken"
+            }
+        ]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "timeout": []
+            }
+        ]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "timeout": {}
+            }
+        ]}
+        self.check_bad_config(c)
+        c["hooks"] = {stage: [
+            {
+                "path": "/nonexistent/hook",
+                "timeout": 42
+            }
+        ]}
+        self.check_good_config(c)
+
+    def test_hooks(self):
+        # if present, hooks must be an object
+        c = self.config()
+        c["hooks"] = "broken"
+        self.check_bad_config(c)
+        c["hooks"] = {}
+        self.check_good_config(c)
+
+        self._test_hooks_sub("prestart")
+        self._test_hooks_sub("createRuntime")
+        self._test_hooks_sub("createContainer")
+        self._test_hooks_sub("startContainer")
+        self._test_hooks_sub("poststart")
+        self._test_hooks_sub("poststop")
         
 
 if __name__ == "__main__":

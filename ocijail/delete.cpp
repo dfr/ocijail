@@ -5,6 +5,7 @@
 #include "nlohmann/json.hpp"
 
 #include "delete.h"
+#include "hook.h"
 #include "jail.h"
 #include "mount.h"
 
@@ -53,6 +54,8 @@ void delete_::run() {
     if (state["config"].contains("mounts")) {
         unmount_volumes(state, state["root_path"], state["config"]["mounts"]);
     }
+
+    hook::run_hooks(app_, state["config"]["hooks"], "poststop", state);
 
     state.remove_all();
 }

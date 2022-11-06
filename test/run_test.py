@@ -145,6 +145,119 @@ class test_run(unittest.TestCase):
             with open(os.path.join(root_dir, "file"), "r") as f:
                 self.assertEqual(f.read(), "Hello World\n")
 
+    def test_hook_create_runtme(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", f"exit $(cat {scratch}/file)"]
+            c["hooks"] = {
+                "createRuntime": [
+                    {
+                        "path": "/bin/sh",
+                        "env": [
+                            "foo=99"
+                        ],
+                        "args": [
+                            "-c",
+                            f"echo $foo > {scratch}/file"
+                        ]
+                    }
+                ]
+            }
+            ret, _ = self.run_with_config(c)
+            self.assertEqual(ret, 99)
+
+    def test_hook_prestart(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", f"exit $(cat {scratch}/file)"]
+            c["hooks"] = {
+                "prestart": [
+                    {
+                        "path": "/bin/sh",
+                        "args": [
+                            "-c",
+                            f"echo 99 > {scratch}/file"
+                        ]
+                    }
+                ]
+            }
+            ret, _ = self.run_with_config(c)
+            self.assertEqual(ret, 99)
+
+    def test_hook_create_container(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["process"]["args"] = ["sh", "-c", "exit $(cat /file)"]
+            c["process"]["env"] = ["PATH=/rescue"]
+            c["hooks"] = {
+                "createContainer": [
+                    {
+                        "path": "/rescue/sh",
+                        "args": [
+                            "-c",
+                            "echo 42 > file"
+                        ]
+                    }
+                ]
+            }
+            ret, _ = self.run_with_config(c)
+            self.assertEqual(ret, 42)
+
+    def test_hook_start_container(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["process"]["args"] = ["sh", "-c", "exit $(cat /file)"]
+            c["process"]["env"] = ["PATH=/rescue"]
+            c["hooks"] = {
+                "startContainer": [
+                    {
+                        "path": "/rescue/sh",
+                        "args": [
+                            "-c",
+                            "echo 42 > /file"
+                        ]
+                    }
+                ]
+            }
+            ret, _ = self.run_with_config(c)
+            self.assertEqual(ret, 42)
+
+    def test_hook_poststop(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", f"exit $(cat {scratch}/file)"]
+            c["hooks"] = {
+                "createRuntime": [
+                    {
+                        "path": "/bin/sh",
+                        "env": [
+                            "foo=123"
+                        ],
+                        "args": [
+                            "-c",
+                            f"echo $foo > {scratch}/file"
+                        ]
+                    }
+                ],
+                "poststop": [
+                    {
+                        "path": "/bin/rm",
+                        "args": [
+                            f"{scratch}/file"
+                        ]
+                    }
+                ]
+            }
+            ret, _ = self.run_with_config(c)
+            self.assertEqual(ret, 123)
+            self.assertTrue(os.path.exists(f"{scratch}/file"))
+            self.delete()
+            self.assertFalse(os.path.exists(f"{scratch}/file"))
+
 if __name__ == "__main__":
     if os.getenv("OCIJAIL_PATH"):
         cmd = os.getenv("OCIJAIL_PATH")

@@ -5,6 +5,7 @@
 #include "CLI/CLI.hpp"
 #include "nlohmann/json.hpp"
 
+#include "hook.h"
 #include "start.h"
 
 namespace fs = std::filesystem;
@@ -36,6 +37,9 @@ void start::run() {
     state["status"] = "running";
     state.save();
 
+    auto& config_hooks = state["config"]["hooks"];
+    hook::run_hooks(app_, config_hooks, "prestart", state);
+
     auto start_wait = state.get_state_dir() / "start_wait";
     auto fd = ::open(start_wait.c_str(), O_RDWR);
     char ch = 0;
@@ -49,6 +53,10 @@ void start::run() {
             errno, std::system_category(), "write to start fifo"};
     }
     ::close(fd);
+
+    // Somehow sync with executing the container process before
+    // running poststart hooks?
+    hook::run_hooks(app_, config_hooks, "poststart", state);
 }
 
 }  // namespace ocijail

@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "ocijail/create.h"
+#include "ocijail/hook.h"
 #include "ocijail/jail.h"
 #include "ocijail/mount.h"
 #include "ocijail/process.h"
@@ -13,8 +14,6 @@
 namespace fs = std::filesystem;
 
 using nlohmann::json;
-
-extern "C" char** environ;
 
 namespace {
 
@@ -80,6 +79,13 @@ void create::run() {
 
     if (app_.get_test_mode() == test_mode::NONE && state.exists()) {
         throw std::runtime_error{"container " + id_ + " exists"};
+    }
+
+    if (chdir(bundle_path_.c_str()) < 0) {
+        throw std::system_error{
+            errno,
+            std::system_category(),
+            "error changing directory to" + bundle_path_.string()};
     }
 
     auto config_path = bundle_path_ / "config.json";
@@ -162,6 +168,21 @@ void create::run() {
                 }
             }
         }
+    }
+
+    // Validate hooks, if present
+    auto& config_hooks = config["hooks"];
+    if (!config_hooks.is_null()) {
+        if (!config_hooks.is_object()) {
+            malformed_config("hooks must be an object");
+        }
+
+        hook::validate_hooks(app_, config_hooks, "prestart");
+        hook::validate_hooks(app_, config_hooks, "createRuntime");
+        hook::validate_hooks(app_, config_hooks, "createContainer");
+        hook::validate_hooks(app_, config_hooks, "startContainer");
+        hook::validate_hooks(app_, config_hooks, "poststart");
+        hook::validate_hooks(app_, config_hooks, "poststop");
     }
 
     // Default to setting allow.chflags but disable if we have a
@@ -254,6 +275,9 @@ void create::run() {
         state["jid"] = j.jid();
         state["pid"] = pid;
         state.save();
+
+        hook::run_hooks(app_, config_hooks, "createRuntime", state);
+
         lk.unlock();
     } else {
         // Perform the console-socket hand off if process.terminal is true.
@@ -283,8 +307,30 @@ void create::run() {
             exit(0);
         }
 
+        // The specification states that for createContainer hooks:
+        //
+        // - The value of path MUST resolve in the container namespace.
+        // - The startContainer hooks MUST be executed in the container
+        //   namespace.
+        //
+        // This doesn't make a lot of sense but looking at other
+        // implementations, runc interprets this as changing directory
+        // to the container root (but not chrooting).
+
+        if (chdir(root_path.c_str()) < 0) {
+            throw std::system_error{
+                errno,
+                std::system_category(),
+                "error changing directory to" + root_path.string()};
+        }
+        hook::run_hooks(app_, config_hooks, "createContainer", state);
+
         // Enter the jail and set the requested working directory.
         j.attach();
+
+        // Now that we are in the container namespace, we can run
+        // startContainer hooks
+        hook::run_hooks(app_, config_hooks, "startContainer", state);
 
         // Execute the requested process inside the jail
         proc.exec(stdin_fd, stdout_fd, stderr_fd);
