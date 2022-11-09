@@ -147,6 +147,50 @@ std::optional<std::string_view> process::getenv(std::string_view key) {
     return std::nullopt;
 }
 
+void process::validate(const fs::path& root_path) {
+    if (args_[0][0] == '/') {
+        auto cmd = root_path / args_[0].substr(1);
+        std::cerr << "cmd: " << cmd.string() << "\n";
+        if (::eaccess(cmd.c_str(), X_OK) < 0) {
+            throw std::system_error{errno, std::system_category(), args_[0]};
+        }
+        if (!fs::is_regular_file(cmd)) {
+            throw std::system_error{EACCES,
+                                    std::system_category(),
+                                    std::string{"exec: "} + args_[0]};
+        }
+        return;
+    } else {
+        fs::path cmd{args_[0]};
+        auto lookup_path = getenv("PATH");
+        if (lookup_path) {
+            auto path = *lookup_path;
+            while (path.size() > 0) {
+                auto pos = path.find(':');
+                std::string_view path_element;
+                if (pos == std::string_view::npos) {
+                    path_element = path;
+                    path = "";
+                } else {
+                    path_element = path.substr(0, pos);
+                    path = path.substr(pos + 1);
+                }
+                // Trim the leading slash (which should be there in
+                // most cases) so that we can create a path relative
+                // to root_path
+                if (path_element[0] == '/') {
+                    path_element = path_element.substr(1);
+                }
+                auto abs_cmd = root_path / path_element / cmd;
+                if (::eaccess(abs_cmd.c_str(), X_OK) == 0) {
+                    return;
+                }
+            }
+        }
+        throw std::system_error{ENOENT, std::system_category(), cmd.string()};
+    }
+}
+
 std::tuple<int, int, int> process::pre_start() {
     int stdin_fd, stdout_fd, stderr_fd;
     if (terminal_) {

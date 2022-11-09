@@ -5,6 +5,7 @@ import io
 import json
 import os
 import os.path
+import secrets
 import shutil
 import socket
 import subprocess
@@ -39,7 +40,10 @@ class test_run(unittest.TestCase):
         return {
             "ociVersion": "1.0.2",
             "process": {
-                "cwd": "/"
+                "cwd": "/",
+                "env": [
+                    "PATH=/bin:/usr/bin:/sbin:/usr/sbin",
+                ],
             },
             "root": {
                 "path": "/"
@@ -257,6 +261,29 @@ class test_run(unittest.TestCase):
             self.assertTrue(os.path.exists(f"{scratch}/file"))
             self.delete()
             self.assertFalse(os.path.exists(f"{scratch}/file"))
+
+    def test_validate_command_path(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            random_dir = secrets.token_urlsafe(8)
+            shutil.copytree("/rescue", os.path.join(root_dir, random_dir))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["process"]["args"] = ["echo", "Hello World"]
+            c["process"]["env"] = [f"PATH=/{random_dir}"]
+            ret, out = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            self.assertEqual(out, "Hello World\n")
+
+    def test_validate_command_abs(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            random_dir = secrets.token_urlsafe(8)
+            shutil.copytree("/rescue", os.path.join(root_dir, random_dir))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["process"]["args"] = [f"/{random_dir}/echo", "Hello World"]
+            ret, out = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            self.assertEqual(out, "Hello World\n")
 
 if __name__ == "__main__":
     if os.getenv("OCIJAIL_PATH"):

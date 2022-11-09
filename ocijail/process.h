@@ -15,6 +15,10 @@ struct process {
     // Like std::getenv but using the env list from this process
     std::optional<std::string_view> getenv(std::string_view key);
 
+    // Validate the command, given the container's root path and throw
+    // an error if its not found
+    void validate(const std::filesystem::path& root_path);
+
     // Call this before start - return value is three file descriptors for
     // stdin, stdout, stderr
     std::tuple<int, int, int> pre_start();

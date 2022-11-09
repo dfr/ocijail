@@ -243,6 +243,9 @@ void create::run() {
         mount_volumes(state, root_path, config_mounts);
     }
 
+    // Validate the process executable exists and can be executed
+    proc.validate(root_path);
+
     // Create the jail for our container. If we have a parent, attach
     // to that first.
     if (parent_jail) {
