@@ -201,6 +201,13 @@ std::tuple<int, int, int> process::pre_start() {
         stdin_fd = 0;
         stdout_fd = 1;
         stderr_fd = 2;
+        // Create a session for the container. Note: for the case
+        // where terminal is requested, this happens as part of
+        // send_pty_control_fd,
+        if (setsid() < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error calling setsid"};
+        }
     }
     return {stdin_fd, stdout_fd, stderr_fd};
 }
