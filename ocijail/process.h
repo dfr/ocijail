@@ -12,6 +12,9 @@ struct process {
     process(const nlohmann::json& process,
             std::optional<std::filesystem::path> console_socket);
 
+    // Like std::getenv but using the env list from this process
+    std::optional<std::string_view> getenv(std::string_view key);
+
     // Call this before start - return value is three file descriptors for
     // stdin, stdout, stderr
     std::tuple<int, int, int> pre_start();

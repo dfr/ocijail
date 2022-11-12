@@ -117,7 +117,8 @@ class test_create(unittest.TestCase):
         self.check_good_config(c)
 
     def test_process_env(self):
-        # if process.env is present, it must be an array of strings
+        # if process.env is present, it must be an array of strings,
+        # each of which must be <key>=<value>
         c = self.config()
         c["process"]["env"] = "notarray"
         self.check_bad_config(c)

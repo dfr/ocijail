@@ -132,6 +132,21 @@ process::process(const json& process_json,
     argv_.push_back(nullptr);
 }
 
+std::optional<std::string_view> process::getenv(std::string_view key) {
+    for (const auto& env : env_) {
+        std::string_view envv{env.data(), env.size()};
+        auto pos = envv.find('=');
+        if (key == envv.substr(0, pos)) {
+            if (pos == std::string_view::npos) {
+                return "";
+            } else {
+                return envv.substr(pos + 1);
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 std::tuple<int, int, int> process::pre_start() {
     int stdin_fd, stdout_fd, stderr_fd;
     if (terminal_) {
