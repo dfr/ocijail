@@ -120,16 +120,6 @@ process::process(const json& process_json,
         throw std::runtime_error(
             "--console-socket provided but process.terminal is false");
     }
-
-    // Prepare the environment and arguments for execvp.
-    for (auto& s : env_) {
-        envv_.push_back(const_cast<char*>(s.c_str()));
-    }
-    envv_.push_back(nullptr);
-    for (auto& s : args_) {
-        argv_.push_back(const_cast<char*>(s.c_str()));
-    }
-    argv_.push_back(nullptr);
 }
 
 std::optional<std::string_view> process::getenv(std::string_view key) {
@@ -145,6 +135,22 @@ std::optional<std::string_view> process::getenv(std::string_view key) {
         }
     }
     return std::nullopt;
+}
+
+void process::setenv(std::string_view key, std::string_view val) {
+    std::stringstream ss;
+    ss << key << "=" << val;
+    auto keyval = ss.str();
+    for (auto& env : env_) {
+        std::string_view envv{env.data(), env.size()};
+        auto pos = envv.find('=');
+        assert(pos != std::string_view::npos);
+        if (key == envv.substr(0, pos)) {
+            env = keyval;
+            return;
+        }
+    }
+    env_.push_back(keyval);
 }
 
 void process::validate(const fs::path& root_path) {
@@ -251,8 +257,24 @@ void process::set_uid_gid() {
 }
 
 void process::exec(int stdin_fd, int stdout_fd, int stderr_fd) {
+    // Make sure that HOME is set and is not empty
+    auto home = getenv("HOME");
+    if (!home || *home == "") {
+        setenv("HOME", "/");
+    }
+
     // Prepare the environment for execvp.
-    environ = &envv_[0];
+    std::vector<char*> argv;
+    std::vector<char*> envv;
+    for (auto& s : env_) {
+        envv.push_back(const_cast<char*>(s.c_str()));
+    }
+    envv.push_back(nullptr);
+    for (auto& s : args_) {
+        argv.push_back(const_cast<char*>(s.c_str()));
+    }
+    argv.push_back(nullptr);
+    environ = &envv[0];
 
     // Enter the jail and set the requested working directory.
     if (chdir(cwd_.c_str()) < 0) {
@@ -280,7 +302,7 @@ void process::exec(int stdin_fd, int stdout_fd, int stderr_fd) {
     ::close_range(3, INT_MAX, CLOSE_RANGE_CLOEXEC);
 
     // exec the requested command.
-    ::execvp(argv_[0], &argv_[0]);
+    ::execvp(argv[0], &argv[0]);
     throw std::system_error{errno,
                             std::system_category(),
                             "error executing container command " + args_[0]};

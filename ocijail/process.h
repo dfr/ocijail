@@ -15,6 +15,9 @@ struct process {
     // Like std::getenv but using the env list from this process
     std::optional<std::string_view> getenv(std::string_view key);
 
+    // Like setenv but using the env list from this process
+    void setenv(std::string_view key, std::string_view val);
+
     // Validate the command, given the container's root path and throw
     // an error if its not found
     void validate(const std::filesystem::path& root_path);
@@ -39,10 +42,6 @@ struct process {
     gid_t gid_;
     mode_t umask_{077};
     bool terminal_{false};
-
-    // Suitable for use with environ and execve
-    std::vector<char*> argv_;
-    std::vector<char*> envv_;
 };
 
 }  // namespace ocijail
