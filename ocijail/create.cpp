@@ -70,6 +70,10 @@ create::create(main_app& app) : app_(app) {
         "--pid-file",
         pid_file_,
         "Path to a file where the container process id will be written");
+    sub->add_option(
+        "--preserve-fds",
+        preserve_fds_,
+        "Number of additional file descriptors for the container");
 
     sub->final_callback([this] { run(); });
 }
@@ -113,7 +117,7 @@ void create::run() {
     }
 
     auto& config_process = config["process"];
-    process proc{config_process, console_socket_};
+    process proc{config_process, console_socket_, preserve_fds_};
 
     // If the config contains a root path, use that, otherwise the
     // bundle directory must have a subdirectory named "root"

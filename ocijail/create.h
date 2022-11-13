@@ -23,6 +23,7 @@ struct create {
     std::string id_;
     std::optional<std::filesystem::path> console_socket_;
     std::optional<std::filesystem::path> pid_file_;
+    int preserve_fds_{0};
 };
 
 }  // namespace ocijail

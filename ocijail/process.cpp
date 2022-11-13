@@ -15,8 +15,9 @@ using nlohmann::json;
 namespace ocijail {
 
 process::process(const json& process_json,
-                 std::optional<std::filesystem::path> console_socket)
-    : console_socket_(console_socket) {
+                 std::optional<std::filesystem::path> console_socket,
+                 int preserve_fds)
+    : console_socket_(console_socket), preserve_fds_(preserve_fds) {
     if (!process_json.is_object()) {
         malformed_config("process must be an object");
     }
@@ -299,7 +300,7 @@ void process::exec(int stdin_fd, int stdout_fd, int stderr_fd) {
     if (stderr_fd != 2) {
         ::dup2(stderr_fd, 2);
     }
-    ::close_range(3, INT_MAX, CLOSE_RANGE_CLOEXEC);
+    ::close_range(3 + preserve_fds_, INT_MAX, CLOSE_RANGE_CLOEXEC);
 
     // exec the requested command.
     ::execvp(argv[0], &argv[0]);

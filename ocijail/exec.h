@@ -20,6 +20,7 @@ struct exec {
     std::optional<std::filesystem::path> pid_file_;
     std::optional<bool> tty_;
     bool detach_{false};
+    int preserve_fds_{0};
 };
 
 }  // namespace ocijail

@@ -10,7 +10,8 @@ struct process {
     // initialise with a json from either create or exec - this will
     // validate the input, throwing an error if necessary.
     process(const nlohmann::json& process,
-            std::optional<std::filesystem::path> console_socket);
+            std::optional<std::filesystem::path> console_socket,
+            int preserve_fds);
 
     // Like std::getenv but using the env list from this process
     std::optional<std::string_view> getenv(std::string_view key);
@@ -32,6 +33,7 @@ struct process {
     void set_uid_gid();
 
     std::optional<std::filesystem::path> console_socket_;
+    int preserve_fds_;
 
     // Copied out from the json during parsing
     std::string cwd_;
