@@ -69,6 +69,10 @@ static void mount_volume(runtime_state& state,
     bool is_file_mount =
         type == "nullfs" && fs::is_regular_file(mount["source"]);
 
+    // For tmpfs with tmpcopyup, we make a copy of the original
+    // directory and use it to initialize the tmpfs
+    std::optional<fs::path> tmp_copy;
+
     // Validate mount options before we perform any actions
     std::vector<std::tuple<std::string, std::string>> mount_opts;
     int mount_flags = 0;
@@ -80,6 +84,11 @@ static void mount_volume(runtime_state& state,
         }
         if (mount.contains("options")) {
             for (auto& opt : mount["options"]) {
+                if (type == "tmpfs" && opt == "tmpcopyup") {
+                    char dir_template[] = "/tmp/tmpcopyup.XXXXXXXX";
+                    tmp_copy = mkdtemp(dir_template);
+                    continue;
+                }
                 auto it = name_to_flag.find(opt);
                 if (it != name_to_flag.end()) {
                     auto flag = it->second;
@@ -133,6 +142,12 @@ static void mount_volume(runtime_state& state,
         }
     }
 
+    if (tmp_copy) {
+        fs::copy(destination,
+                 *tmp_copy,
+                 fs::copy_options::recursive | fs::copy_options::copy_symlinks);
+    }
+
     if (is_file_mount) {
         // Mimic real file mounts by copying the source
         fs::copy_file(mount["source"], destination);
@@ -154,6 +169,12 @@ static void mount_volume(runtime_state& state,
                 std::system_category(),
                 "mounting " + mount["destination"].get<std::string>());
         }
+    }
+    if (tmp_copy) {
+        fs::copy(*tmp_copy,
+                 destination,
+                 fs::copy_options::recursive | fs::copy_options::copy_symlinks);
+        fs::remove_all(*tmp_copy);
     }
 }
 

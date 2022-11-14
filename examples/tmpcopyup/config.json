@@ -1,0 +1,15 @@
+{
+    "ociVersion": "1.0.2",
+    "process": {
+        "cwd": "/",
+        "env": ["PATH=/rescue"],
+        "args": ["cat", "/tmpdir/file"]
+    },
+    "mounts": [
+        {
+            "type": "tmpfs",
+            "destination": "/tmpdir",
+            "options": ["tmpcopyup"]
+        }
+    ]
+}

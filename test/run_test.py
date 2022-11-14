@@ -69,7 +69,7 @@ class test_run(unittest.TestCase):
             args=args,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.PIPE
         ) as proc:
             if terminal:
                 conn, _ = sock.accept()
@@ -79,12 +79,17 @@ class test_run(unittest.TestCase):
                 conn.close()
                 sock.close()
             else:
-                # Steal the stdout so that it doesn't get closed during
+                # Steal the pipes so that they don't get closed during
                 # the call to proc.wait()
                 stdout = proc.stdout
+                stderr = proc.stderr
                 proc.stdout = None
-            ret = proc.wait()
-        self.assertTrue(ret == 0)
+                proc.stderr = None
+                ret = proc.wait()
+                if ret != 0:
+                    out = stderr.read().decode("utf-8")
+                    print(f"failed with stderr: {out}")
+                    self.assertTrue(ret == 0)
         with open(pid_file, "r") as f:
             pid = int(f.read())
         return pid, stdout
@@ -102,6 +107,8 @@ class test_run(unittest.TestCase):
     def run_with_config(self, c):
         with tempfile.TemporaryDirectory() as bundle_dir:
             with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            with open(os.path.join("/tmp", "config.json"), "w") as f:
                 json.dump(c, f)
             if "terminal" in c["process"]:
                 terminal = c["process"]["terminal"]
@@ -284,6 +291,32 @@ class test_run(unittest.TestCase):
             ret, out = self.run_with_config(c)
             self.assertEqual(ret, 0)
             self.assertEqual(out, "Hello World\n")
+
+    def test_tmpcopyup(self):
+        # Running the container should copy the contents of /tmpdir to a
+        # tmpfs which is mounted over it
+        with tempfile.TemporaryDirectory() as root_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["process"]["args"] = ["cat", "/tmpdir/file"]
+            c["process"]["env"] = ["PATH=/rescue"]
+            c["mounts"] = [
+                {
+                    "type": "tmpfs",
+                    "destination": "/tmpdir",
+                    "options": ["tmpcopyup"],
+                },
+            ]
+            os.mkdir(os.path.join(root_dir, "tmpdir"))
+            with open(os.path.join(root_dir, "tmpdir", "file"), "w") as f:
+                f.write("Hello World\n")
+            ret, out = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            self.assertEqual(out, "Hello World\n")
+            # Delete the container so that the tmpfs is unmounted
+            # before we delete root_dir
+            self.delete()
 
 if __name__ == "__main__":
     if os.getenv("OCIJAIL_PATH"):
