@@ -1,0 +1,49 @@
+{
+  "ociVersion": "1.0.2",
+  "process": {
+    "args": [
+      "sh", "-c", "ps && df && ls -l /dev"
+    ],
+    "env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ],
+    "cwd": "/",
+    "rlimits": [
+      {
+        "type": "RLIMIT_NOFILE",
+        "hard": 1024,
+        "soft": 1024
+      }
+    ]
+  },
+  "mounts": [
+    {
+      "destination": "/dev",
+      "type": "devfs",
+      "source": "devfs",
+      "options": [
+        "ruleset=100"
+      ]
+    },
+    {
+      "destination": "/dev/fd",
+      "type": "fdescfs",
+      "source": "fdesc"
+    },
+    {
+      "destination": "/proc",
+      "type": "linprocfs",
+      "source": "proc"
+    },
+    {
+      "destination": "/sys",
+      "type": "linsysfs",
+      "source": "sys"
+    },
+    {
+      "destination": "/dev/shm",
+      "type": "tmpfs",
+      "source": "shm"
+    }
+  ]
+}
