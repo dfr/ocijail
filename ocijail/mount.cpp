@@ -48,6 +48,7 @@ static std::map<std::string, int> name_to_flag = {
     {"rprivate", 0},
     {"rbind", 0},
     {"nodev", 0},
+    {"bind", 0},
 };
 
 static std::tuple<fs::path, fs::path> get_save_path(
@@ -59,13 +60,27 @@ static std::tuple<fs::path, fs::path> get_save_path(
     return std::make_tuple(save_dir, save_path);
 }
 
+static fs::path resolve_container_path(const fs::path& root_path,
+                                       const json& mount) {
+    // Strip off the leading '/' from destination if it has one
+    std::string path{mount["destination"]};
+    if (path[0] == '/') {
+        path = path.substr(1);
+    }
+    return root_path / path;
+}
+
 static void mount_volume(runtime_state& state,
                          const fs::path& root_path,
                          const json& mount) {
-    // We use fs::relative to strip off the leading '/' from destination
-    auto destination = root_path / fs::relative(mount["destination"], "/");
+    auto destination = resolve_container_path(root_path, mount);
 
     std::string type = mount.contains("type") ? mount["type"] : "nullfs";
+    if (type == "bind") {
+        // TODO: remove this when podman syncs with buildah fixes to
+        // avoid using "bind" on FreeBSD.
+        type = "nullfs";
+    }
     bool is_file_mount =
         type == "nullfs" && fs::is_regular_file(mount["source"]);
 
@@ -164,10 +179,12 @@ static void mount_volume(runtime_state& state,
                       val.size() + 1});
         }
         if (nmount(&iov[0], iov.size(), mount_flags) < 0) {
+            std::stringstream ss;
+            ss << mount;
             throw std::system_error(
                 errno,
                 std::system_category(),
-                "mounting " + mount["destination"].get<std::string>());
+                "mounting " + ss.str());
         }
     }
     if (tmp_copy) {
@@ -181,8 +198,7 @@ static void mount_volume(runtime_state& state,
 static void unmount_volume(runtime_state& state,
                            const fs::path& root_path,
                            const json& mount) {
-    // We use fs::relative to strip off the leading '/' from destination
-    auto destination = root_path / fs::relative(mount["destination"], "/");
+    auto destination = resolve_container_path(root_path, mount);
 
     std::string type = mount.contains("type") ? mount["type"] : "nullfs";
     bool is_file_mount =
@@ -207,21 +223,48 @@ static void unmount_volume(runtime_state& state,
 void mount_volumes(runtime_state& state,
                    const fs::path& root_path,
                    const json& mounts) {
-    for (auto& mount : mounts) {
-        mount_volume(state, root_path, mount);
+    try {
+        for (auto& mount : mounts) {
+            mount_volume(state, root_path, mount);
+        }
+    } catch (...) {
+        // Attempt to clean up in case we mounted something
+        try {
+            unmount_volume(state, root_path, mounts);
+        } catch (...) {
+        }
+        throw;
     }
 }
 
 void unmount_volumes(runtime_state& state,
                      const fs::path& root_path,
                      const json& mounts) {
+    // Remember the first exception (if any) but try to unmount
+    // everything
+    std::exception_ptr eptr{nullptr};
     for (auto& mount : mounts) {
-        unmount_volume(state, root_path, mount);
-    }
-    for (auto& dir : state["remove_on_unmount"]) {
-        if (fs::exists(dir)) {
-            fs::remove(dir);
+        try {
+            unmount_volume(state, root_path, mount);
+        } catch (...) {
+            if (!eptr) {
+                eptr = std::current_exception();
+            }
         }
+    }
+    try {
+        for (auto& dir : state["remove_on_unmount"]) {
+            if (fs::exists(dir)) {
+                fs::remove(dir);
+            }
+        }
+    } catch (...) {
+        if (!eptr) {
+            eptr = std::current_exception();
+        }
+    }
+    if (eptr) {
+        std::rethrow_exception(eptr);
     }
 }
 
