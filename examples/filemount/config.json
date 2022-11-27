@@ -1,0 +1,15 @@
+{
+    "ociVersion": "1.0.2",
+    "process": {
+        "cwd": "/",
+        "env": ["PATH=/rescue"],
+        "args": ["head", "/path/to/mounted/file"]
+    },
+    "mounts": [
+        {
+            "type": "nullfs",
+            "destination": "/path/to/mounted/file",
+            "source": "/COPYRIGHT"
+        }
+    ]
+}

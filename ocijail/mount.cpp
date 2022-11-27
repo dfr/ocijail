@@ -233,7 +233,22 @@ void apply_devfs_rule(const fs::path& destination, std::string_view rule) {
     }
 }
 
-static void mount_volume(runtime_state& state,
+// Similar to fs::create_directories but track our actions in the
+// runtime state.
+static void create_directories(const fs::path& root_path,
+                               const fs::path& path,
+                               runtime_state& state) {
+    if (path == root_path || fs::exists(path)) {
+        return;
+    }
+    // Make sure that directories are removed in reverse order
+    state["remove_on_unmount"].push_back(path);
+    create_directories(root_path, path.parent_path(), state);
+    fs::create_directory(path);
+}
+
+static bool mount_volume(bool file_mount_supported,
+                         runtime_state& state,
                          const fs::path& root_path,
                          const json& mount) {
     auto destination = resolve_container_path(root_path, mount);
@@ -251,52 +266,44 @@ static void mount_volume(runtime_state& state,
     std::vector<std::tuple<pseudo_option*, std::string>> pseudo_opts;
     std::vector<std::tuple<std::string, std::string>> mount_opts;
     int mount_flags = 0;
-    if (!is_file_mount) {
-        mount_opts.emplace_back("fstype", type);
-        mount_opts.emplace_back("fspath", destination);
-        if (type == "nullfs") {
-            mount_opts.emplace_back("target", mount["source"]);
-        }
-        if (mount.contains("options")) {
-            for (auto& opt : mount["options"]) {
-                // Copy the string out of json to make life simpler
-                std::string optstring{opt};
-                auto [key, val] = split_option(optstring);
+    mount_opts.emplace_back("fstype", type);
+    mount_opts.emplace_back("fspath", destination);
+    if (type == "nullfs") {
+        mount_opts.emplace_back("target", mount["source"]);
+    }
+    if (mount.contains("options")) {
+        for (auto& opt : mount["options"]) {
+            // Copy the string out of json to make life simpler
+            std::string optstring{opt};
+            auto [key, val] = split_option(optstring);
 
-                auto it = name_to_flag.find(key);
-                if (it != name_to_flag.end()) {
-                    auto flag = it->second;
-                    if (flag > 0) {
-                        mount_flags |= flag;
-                    } else if (flag < 0) {
-                        mount_flags &= ~(-flag);
-                    }
-                    continue;
-                } else {
-                    auto h = pseudo_option::lookup(type, key);
-                    if (h != nullptr) {
-                        pseudo_opts.emplace_back(h, val);
-                        continue;
-                    }
-                    mount_opts.emplace_back(key, val);
+            auto it = name_to_flag.find(key);
+            if (it != name_to_flag.end()) {
+                auto flag = it->second;
+                if (flag > 0) {
+                    mount_flags |= flag;
+                } else if (flag < 0) {
+                    mount_flags &= ~(-flag);
                 }
+                continue;
+            } else {
+                auto h = pseudo_option::lookup(type, key);
+                if (h != nullptr) {
+                    pseudo_opts.emplace_back(h, val);
+                    continue;
+                }
+                mount_opts.emplace_back(key, val);
             }
         }
     }
 
-    if (fs::exists(destination)) {
+    auto destination_exists = fs::exists(destination);
+    if (destination_exists) {
         if (is_file_mount) {
             if (!fs::is_regular_file(destination)) {
                 throw std::runtime_error(
                     "destination for file mount exists and is not a file");
             }
-            // Mimic real file mounts by moving the original to a subdirectory
-            auto [save_dir, save_path] = get_save_path(state, destination);
-            if (!fs::exists(save_dir)) {
-                fs::create_directories(save_dir);
-                state["remove_on_unmount"].push_back(save_dir);
-            }
-            fs::rename(destination, save_path);
         } else {
             if (!fs::is_directory(destination)) {
                 throw std::runtime_error(
@@ -305,12 +312,14 @@ static void mount_volume(runtime_state& state,
             }
         }
     } else {
-        state["remove_on_unmount"].push_back(destination);
         if (is_file_mount) {
-            // Create parent directories if necessary.
-            fs::create_directories(destination.parent_path());
+            // Create parent directories if necessary and create an
+            // empty file to mount over
+            state["remove_on_unmount"].push_back(destination);
+            create_directories(root_path, destination.parent_path(), state);
+            std::ofstream{destination} << "";
         } else {
-            fs::create_directories(destination);
+            create_directories(root_path, destination, state);
         }
     }
 
@@ -318,9 +327,20 @@ static void mount_volume(runtime_state& state,
         std::get<0>(entry)->before_mount(destination, std::get<1>(entry));
     }
 
-    if (is_file_mount) {
-        // Mimic real file mounts by copying the source
-        fs::copy_file(mount["source"], destination);
+retry:
+    if (is_file_mount && !file_mount_supported) {
+        // Mimic real file mounts by moving the original to a subdirectory if it
+        // existed and copying the source
+        if (destination_exists) {
+            auto [save_dir, save_path] = get_save_path(state, destination);
+            if (!fs::exists(save_dir)) {
+                fs::create_directories(save_dir);
+                state["remove_on_unmount"].push_back(save_dir);
+            }
+            fs::rename(destination, save_path);
+        }
+        fs::copy_file(
+            mount["source"], destination, fs::copy_options::overwrite_existing);
     } else {
         // Otherwise perform the actual mount.
         std::vector<iovec> iov;
@@ -334,6 +354,10 @@ static void mount_volume(runtime_state& state,
                       val.size() + 1});
         }
         if (nmount(&iov[0], iov.size(), mount_flags) < 0) {
+            if (is_file_mount && errno == ENOTDIR) {
+                file_mount_supported = false;
+                goto retry;
+            }
             std::stringstream ss;
             ss << mount;
             throw std::system_error(
@@ -344,9 +368,12 @@ static void mount_volume(runtime_state& state,
     for (auto& entry : pseudo_opts) {
         std::get<0>(entry)->after_mount(destination, std::get<1>(entry));
     }
+
+    return file_mount_supported;
 }
 
-static void unmount_volume(runtime_state& state,
+static void unmount_volume(bool file_mount_supported,
+                           runtime_state& state,
                            const fs::path& root_path,
                            const json& mount) {
     auto destination = resolve_container_path(root_path, mount);
@@ -355,7 +382,7 @@ static void unmount_volume(runtime_state& state,
     bool is_file_mount =
         type == "nullfs" && fs::is_regular_file(mount["source"]);
 
-    if (is_file_mount) {
+    if (is_file_mount && !file_mount_supported) {
         // Restore the saved path if it exists
         auto [_, save_path] = get_save_path(state, destination);
         if (fs::exists(save_path)) {
@@ -374,30 +401,35 @@ static void unmount_volume(runtime_state& state,
 void mount_volumes(runtime_state& state,
                    const fs::path& root_path,
                    const json& mounts) {
+    bool file_mount_supported = true;
     try {
         for (auto& mount : mounts) {
-            mount_volume(state, root_path, mount);
+            file_mount_supported =
+                mount_volume(file_mount_supported, state, root_path, mount);
         }
-    } catch (...) {
+    } catch (const std::exception& e) {
         // Attempt to clean up in case we mounted something
         try {
-            unmount_volume(state, root_path, mounts);
+            unmount_volumes(state, root_path, mounts);
         } catch (...) {
         }
         throw;
     }
+    state["file_mount_supported"] = file_mount_supported;
 }
 
 void unmount_volumes(runtime_state& state,
                      const fs::path& root_path,
                      const json& mounts) {
+    bool file_mount_supported = state["file_mount_supported"];
+
     // Remember the first exception (if any) but try to unmount
     // everything
     std::exception_ptr eptr{nullptr};
     for (auto& mount : mounts) {
         try {
-            unmount_volume(state, root_path, mount);
-        } catch (...) {
+            unmount_volume(file_mount_supported, state, root_path, mount);
+        } catch (const std::exception&) {
             if (!eptr) {
                 eptr = std::current_exception();
             }
