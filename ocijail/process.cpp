@@ -154,10 +154,9 @@ void process::setenv(std::string_view key, std::string_view val) {
     env_.push_back(keyval);
 }
 
-void process::validate(const fs::path& root_path) {
+void process::validate() {
     if (args_[0][0] == '/') {
-        auto cmd = root_path / args_[0].substr(1);
-        std::cerr << "cmd: " << cmd.string() << "\n";
+        auto cmd = args_[0];
         if (::eaccess(cmd.c_str(), X_OK) < 0) {
             throw std::system_error{errno, std::system_category(), args_[0]};
         }
@@ -182,13 +181,7 @@ void process::validate(const fs::path& root_path) {
                     path_element = path.substr(0, pos);
                     path = path.substr(pos + 1);
                 }
-                // Trim the leading slash (which should be there in
-                // most cases) so that we can create a path relative
-                // to root_path
-                if (path_element[0] == '/') {
-                    path_element = path_element.substr(1);
-                }
-                auto abs_cmd = root_path / path_element / cmd;
+                auto abs_cmd = path_element / cmd;
                 if (::eaccess(abs_cmd.c_str(), X_OK) == 0) {
                     return;
                 }
@@ -277,7 +270,7 @@ void process::exec(int stdin_fd, int stdout_fd, int stderr_fd) {
     argv.push_back(nullptr);
     environ = &envv[0];
 
-    // Enter the jail and set the requested working directory.
+    // Set the requested working directory.
     if (chdir(cwd_.c_str()) < 0) {
         throw std::system_error{errno,
                                 std::system_category(),

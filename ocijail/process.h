@@ -19,9 +19,8 @@ struct process {
     // Like setenv but using the env list from this process
     void setenv(std::string_view key, std::string_view val);
 
-    // Validate the command, given the container's root path and throw
-    // an error if its not found
-    void validate(const std::filesystem::path& root_path);
+    // Validate the command and throw an error if its not found
+    void validate();
 
     // Call this before start - return value is three file descriptors for
     // stdin, stdout, stderr

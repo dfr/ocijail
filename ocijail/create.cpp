@@ -1,5 +1,7 @@
 #include <fcntl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
@@ -70,10 +72,9 @@ create::create(main_app& app) : app_(app) {
         "--pid-file",
         pid_file_,
         "Path to a file where the container process id will be written");
-    sub->add_option(
-        "--preserve-fds",
-        preserve_fds_,
-        "Number of additional file descriptors for the container");
+    sub->add_option("--preserve-fds",
+                    preserve_fds_,
+                    "Number of additional file descriptors for the container");
 
     sub->final_callback([this] { run(); });
 }
@@ -247,9 +248,6 @@ void create::run() {
         mount_volumes(state, root_path, config_mounts);
     }
 
-    // Validate the process executable exists and can be executed
-    proc.validate(root_path);
-
     // Create the jail for our container. If we have a parent, attach
     // to that first.
     if (parent_jail) {
@@ -260,6 +258,15 @@ void create::run() {
             pj.set("children.max", current_child_count + 1);
         }
     }
+
+    // Create a socket pair for coordinating create activities with
+    // our child process.
+    int create_sock[2];
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, create_sock) < 0) {
+        throw std::system_error{
+            errno, std::system_category(), "error creating socket pair"};
+    }
+
     auto j = jail::create(jconf);
 
     // We record the container state including the bundle config. We
@@ -286,60 +293,102 @@ void create::run() {
         hook::run_hooks(app_, config_hooks, "createRuntime", state);
 
         lk.unlock();
+
+        // Signal the child to execute any hooks and validate that the
+        // container process can be found.
+        char ch = 1;
+        auto n = ::write(create_sock[0], &ch, 1);
+        if (n < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "write to create socket"};
+        }
+
+        // Read back the child's status - this is our exit status. The
+        // child will have already written to stderr if necessary.
+        char status;
+        n = ::read(create_sock[0], &status, 1);
+        if (n < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "read from create socket"};
+        }
+        if (status != 0) {
+            state["status"] = "stopped";
+            state.save();
+        }
+        ::exit(status);
     } else {
         // Perform the console-socket hand off if process.terminal is true.
         auto [stdin_fd, stdout_fd, stderr_fd] = proc.pre_start();
 
-        // Wait for start to signal us via the fifo
-        auto fd = open(start_wait.c_str(), O_RDWR);
-        char ch;
-        if (fd < 0) {
+        auto start_wait_fd = ::open(start_wait.c_str(), O_RDWR);
+        if (start_wait_fd < 0) {
             throw std::system_error{
-                errno, std::system_category(), "error opening start fifo"};
+                errno, std::system_category(), "open start fifo"};
         }
-        assert(fd >= 0);
-        auto n = read(fd, &ch, 1);
+
+        // Wait for our parent to signal us via the socket
+        char ch;
+        auto n = read(create_sock[1], &ch, 1);
+        if (n < 0) {
+            throw std::system_error{errno,
+                                    std::system_category(),
+                                    "error reading from create socket"};
+        }
+
+        char status = 0;
+        try {
+            // Our part of create: execute any hooks, enter the jail and
+            // validate process args.
+
+            // The specification states that for createContainer hooks:
+            //
+            // - The value of path MUST resolve in the container namespace.
+            // - The startContainer hooks MUST be executed in the container
+            //   namespace.
+            //
+            // This doesn't make a lot of sense but looking at other
+            // implementations, runc interprets this as changing directory
+            // to the container root (but not chrooting).
+            if (chdir(root_path.c_str()) < 0) {
+                throw std::system_error{
+                    errno,
+                    std::system_category(),
+                    "error changing directory to" + root_path.string()};
+            }
+            hook::run_hooks(app_, config_hooks, "createContainer", state);
+
+            // Enter the jail and set the requested working directory.
+            j.attach();
+
+            // Validate the process executable exists and can be executed
+            proc.validate();
+        } catch (const std::exception& e) {
+            std::string_view msg{e.what()};
+            ::write(2, msg.data(), msg.size());
+            status = 1;
+        }
+
+        n = write(create_sock[1], &status, 1);
+        if (n < 0) {
+            throw std::system_error{errno,
+                                    std::system_category(),
+                                    "error writing to create socket"};
+        }
+        ::close(create_sock[1]);
+
+        // Finished coordinating with parent - now we wait until
+        // signalled by start.
+        n = ::read(start_wait_fd, &ch, 1);
         if (n < 0) {
             throw std::system_error{
-                errno, std::system_category(), "error reading from start fifo"};
+                errno, std::system_category(), "read from start fifo"};
         }
-        close(fd);
+        ::close(start_wait_fd);
 
-        // If start was called, we should be in state 'running'. TODO:
-        // figure out the right semantics for kill and delete on
-        // containers in 'created' state.
-        auto lk2 = state.lock();
-        state.load();
-        if (state["status"] != "running") {
-            exit(0);
-        }
-
-        // The specification states that for createContainer hooks:
-        //
-        // - The value of path MUST resolve in the container namespace.
-        // - The startContainer hooks MUST be executed in the container
-        //   namespace.
-        //
-        // This doesn't make a lot of sense but looking at other
-        // implementations, runc interprets this as changing directory
-        // to the container root (but not chrooting).
-
-        if (chdir(root_path.c_str()) < 0) {
-            throw std::system_error{
-                errno,
-                std::system_category(),
-                "error changing directory to" + root_path.string()};
-        }
-        hook::run_hooks(app_, config_hooks, "createContainer", state);
-
-        // Enter the jail and set the requested working directory.
-        j.attach();
-
-        // Now that we are in the container namespace, we can run
-        // startContainer hooks
+        // Run startContainer hooks inside the jail.
         hook::run_hooks(app_, config_hooks, "startContainer", state);
 
-        // Execute the requested process inside the jail
+        // Execute the requested process inside the jail.
         proc.exec(stdin_fd, stdout_fd, stderr_fd);
     }
 }
