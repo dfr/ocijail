@@ -15,7 +15,7 @@
 using namespace ocijail;
 using nlohmann::json;
 
-static const char* version = "0.1rc1";
+static const char* version = "0.1rc2";
 
 int main(int argc, char** argv) {
     main_app app{"ocijail: Yet another OCI runtime"};
