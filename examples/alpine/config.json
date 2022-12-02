@@ -22,7 +22,8 @@
       "type": "devfs",
       "source": "devfs",
       "options": [
-        "ruleset=100"
+          "ruleset=4",
+          "rule=path shm unhide mode 1777"
       ]
     },
     {

@@ -2,13 +2,6 @@
 
 OCIJAIL=${OCIJAIL:-ocijail}
 
-devfs rule -s 100 delset
-devfs rule -s 100 add include 1
-devfs rule -s 100 add include 2
-devfs rule -s 100 add include 3
-devfs rule -s 100 add include 4
-devfs rule -s 100 add path shm unhide mode 1777
-
 bundle=$(mktemp -d)
 cp config.json ${bundle}
 cd ${bundle}

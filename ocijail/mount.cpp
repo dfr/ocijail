@@ -1,11 +1,15 @@
 #include <sys/param.h>
 
+#include <spawn.h>
 #include <sys/mount.h>
 #include <sys/uio.h>
+#include <sys/wait.h>
 #include <iostream>
 
 #include "ocijail/main.h"
 #include "ocijail/mount.h"
+
+extern "C" char** environ;
 
 using namespace std::literals::string_literals;
 namespace fs = std::filesystem;
@@ -14,7 +18,7 @@ using nlohmann::json;
 
 namespace ocijail {
 
-static std::map<std::string, int> name_to_flag = {
+static std::map<std::string, int, std::less<>> name_to_flag = {
     {"async", MNT_ASYNC},
     {"atime", -MNT_NOATIME},
     {"exec", -MNT_NOEXEC},
@@ -51,6 +55,121 @@ static std::map<std::string, int> name_to_flag = {
     {"bind", 0},
 };
 
+struct pseudo_option {
+    pseudo_option(std::string_view type_, std::string_view optkey_)
+        : type(type_), optkey(optkey_) {
+        handlers_.push_back(this);
+    }
+    virtual ~pseudo_option() = default;
+
+    static pseudo_option* lookup(std::string_view type,
+                                 std::string_view optkey) {
+        for (auto h : handlers_) {
+            if (h->type == type && h->optkey == optkey) {
+                return h;
+            }
+        }
+        return nullptr;
+    }
+
+    std::string_view type;
+    std::string_view optkey;
+    virtual void before_mount(const fs::path& destination,
+                              std::string_view optval) = 0;
+    virtual void after_mount(const fs::path& destination,
+                             std::string_view optval) = 0;
+
+   private:
+    static std::vector<pseudo_option*> handlers_;
+};
+
+std::vector<pseudo_option*> pseudo_option::handlers_;
+
+struct tmpcopyup_option : pseudo_option {
+    using pseudo_option::pseudo_option;
+
+    void before_mount(const fs::path& destination,
+                      std::string_view optval) override {
+        char dir_template[] = "/tmp/tmpcopyup.XXXXXXXX";
+        tmp_copy = mkdtemp(dir_template);
+        fs::copy(destination,
+                 tmp_copy,
+                 fs::copy_options::recursive | fs::copy_options::copy_symlinks);
+    }
+
+    void after_mount(const fs::path& destination,
+                     std::string_view optval) override {
+        fs::copy(tmp_copy,
+                 destination,
+                 fs::copy_options::recursive | fs::copy_options::copy_symlinks);
+    }
+
+    fs::path tmp_copy;
+} tmpcopyup_handler{"tmpfs", "tmpcopyup"};
+
+struct devfs_rule_option : pseudo_option {
+    using pseudo_option::pseudo_option;
+
+    void before_mount(const fs::path& destination,
+                      std::string_view optval) override {}
+
+    void after_mount(const fs::path& destination,
+                     std::string_view rule) override {
+        std::vector<std::string> args;
+        std::vector<char*> argv;
+
+        args.emplace_back("devfs");
+        args.emplace_back("-m");
+        args.emplace_back(destination);
+        args.emplace_back("rule");
+        args.emplace_back("apply");
+        while (rule.size() > 0) {
+            auto sep = rule.find(' ');
+            args.emplace_back(rule.substr(0, sep));
+            if (sep != std::string_view::npos) {
+                rule = rule.substr(sep);
+                while (rule.size() > 0 && rule[0] == ' ') {
+                    rule = rule.substr(1);
+                }
+            } else {
+                rule = "";
+            }
+        }
+        for (auto& arg : args) {
+            argv.push_back(const_cast<char*>(arg.c_str()));
+        }
+        argv.push_back(nullptr);
+
+        pid_t pid;
+        auto res = ::posix_spawn(
+            &pid, "/sbin/devfs", nullptr, nullptr, &argv[0], environ);
+        if (res != 0) {
+            throw std::system_error{res, std::system_category(), "posix_spawn"};
+        }
+
+        int status;
+        if (::waitpid(pid, &status, 0) < 0) {
+            throw std::system_error{errno, std::system_category(), "waitpid"};
+        }
+
+        if (status != 0) {
+            throw std::runtime_error{"devfs exited with error " +
+                                     std::to_string(status)};
+        }
+    }
+
+    fs::path tmp_copy;
+} devfs_rule_handler{"devfs", "rule"};
+
+static std::tuple<std::string_view, std::string_view> split_option(
+    std::string_view option) {
+    auto sep = option.find_first_of("=");
+    if (sep == std::string::npos) {
+        return std::make_tuple(option, "");
+    }
+    return {option.substr(0, sep), option.substr(sep + 1)};
+}
+
 static std::tuple<fs::path, fs::path> get_save_path(
     const runtime_state& state,
     const fs::path& destination) {
@@ -70,6 +189,50 @@ static fs::path resolve_container_path(const fs::path& root_path,
     return root_path / path;
 }
 
+void apply_devfs_rule(const fs::path& destination, std::string_view rule) {
+    std::vector<std::string> args;
+    std::vector<char*> argv;
+
+    args.emplace_back("devfs");
+    args.emplace_back("-m");
+    args.emplace_back(destination);
+    args.emplace_back("rule");
+    args.emplace_back("apply");
+    while (rule.size() > 0) {
+        auto sep = rule.find(' ');
+        args.emplace_back(rule.substr(0, sep));
+        if (sep != std::string_view::npos) {
+            rule = rule.substr(sep);
+            while (rule.size() > 0 && rule[0] == ' ') {
+                rule = rule.substr(1);
+            }
+        } else {
+            rule = "";
+        }
+    }
+    for (auto& arg : args) {
+        argv.push_back(const_cast<char*>(arg.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    pid_t pid;
+    auto res =
+        ::posix_spawn(&pid, "/sbin/devfs", nullptr, nullptr, &argv[0], environ);
+    if (res != 0) {
+        throw std::system_error{res, std::system_category(), "posix_spawn"};
+    }
+
+    int status;
+    if (::waitpid(pid, &status, 0) < 0) {
+        throw std::system_error{errno, std::system_category(), "waitpid"};
+    }
+
+    if (status != 0) {
+        throw std::runtime_error{"devfs exited with error " +
+                                 std::to_string(status)};
+    }
+}
+
 static void mount_volume(runtime_state& state,
                          const fs::path& root_path,
                          const json& mount) {
@@ -84,11 +247,8 @@ static void mount_volume(runtime_state& state,
     bool is_file_mount =
         type == "nullfs" && fs::is_regular_file(mount["source"]);
 
-    // For tmpfs with tmpcopyup, we make a copy of the original
-    // directory and use it to initialize the tmpfs
-    std::optional<fs::path> tmp_copy;
-
     // Validate mount options before we perform any actions
+    std::vector<std::tuple<pseudo_option*, std::string>> pseudo_opts;
     std::vector<std::tuple<std::string, std::string>> mount_opts;
     int mount_flags = 0;
     if (!is_file_mount) {
@@ -99,12 +259,11 @@ static void mount_volume(runtime_state& state,
         }
         if (mount.contains("options")) {
             for (auto& opt : mount["options"]) {
-                if (type == "tmpfs" && opt == "tmpcopyup") {
-                    char dir_template[] = "/tmp/tmpcopyup.XXXXXXXX";
-                    tmp_copy = mkdtemp(dir_template);
-                    continue;
-                }
-                auto it = name_to_flag.find(opt);
+                // Copy the string out of json to make life simpler
+                std::string optstring{opt};
+                auto [key, val] = split_option(optstring);
+
+                auto it = name_to_flag.find(key);
                 if (it != name_to_flag.end()) {
                     auto flag = it->second;
                     if (flag > 0) {
@@ -114,14 +273,12 @@ static void mount_volume(runtime_state& state,
                     }
                     continue;
                 } else {
-                    auto s = opt.get<std::string>();
-                    auto sep = s.find_first_of("=");
-                    if (sep == std::string::npos) {
-                        throw std::runtime_error("malformed mount option: " +
-                                                 s);
+                    auto h = pseudo_option::lookup(type, key);
+                    if (h != nullptr) {
+                        pseudo_opts.emplace_back(h, val);
+                        continue;
                     }
-                    mount_opts.emplace_back(s.substr(0, sep),
-                                            s.substr(sep + 1));
+                    mount_opts.emplace_back(key, val);
                 }
             }
         }
@@ -157,10 +314,8 @@ static void mount_volume(runtime_state& state,
         }
     }
 
-    if (tmp_copy) {
-        fs::copy(destination,
-                 *tmp_copy,
-                 fs::copy_options::recursive | fs::copy_options::copy_symlinks);
+    for (auto& entry : pseudo_opts) {
+        std::get<0>(entry)->before_mount(destination, std::get<1>(entry));
     }
 
     if (is_file_mount) {
@@ -182,16 +337,12 @@ static void mount_volume(runtime_state& state,
             std::stringstream ss;
             ss << mount;
             throw std::system_error(
-                errno,
-                std::system_category(),
-                "mounting " + ss.str());
+                errno, std::system_category(), "mounting " + ss.str());
         }
     }
-    if (tmp_copy) {
-        fs::copy(*tmp_copy,
-                 destination,
-                 fs::copy_options::recursive | fs::copy_options::copy_symlinks);
-        fs::remove_all(*tmp_copy);
+
+    for (auto& entry : pseudo_opts) {
+        std::get<0>(entry)->after_mount(destination, std::get<1>(entry));
     }
 }
 
@@ -212,10 +363,10 @@ static void unmount_volume(runtime_state& state,
         }
     } else {
         if (::unmount(destination.c_str(), MNT_FORCE) < 0) {
-            throw std::system_error(
+            throw std::system_error{
                 errno,
                 std::system_category(),
-                "mounting " + mount["destination"].get<std::string>());
+                "mounting " + mount["destination"].get<std::string>()};
         }
     }
 }
