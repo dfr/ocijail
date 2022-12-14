@@ -1,3 +1,4 @@
+#include <err.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -297,9 +298,7 @@ void process::exec(int stdin_fd, int stdout_fd, int stderr_fd) {
 
     // exec the requested command.
     ::execvp(argv[0], &argv[0]);
-    throw std::system_error{errno,
-                            std::system_category(),
-                            "error executing container command " + args_[0]};
+    ::err(1, "error executing container command");
 }
 
 }  // namespace ocijail
