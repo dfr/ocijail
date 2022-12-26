@@ -59,8 +59,11 @@ void jail::attach() {
 
 void jail::remove() {
     if (jail_remove(jid_) < 0) {
-        throw std::system_error{
-            errno, std::system_category(), "error calling jail_remove"};
+        // If errno is EINVAL, jail is already removed
+        if (errno != EINVAL) {
+            throw std::system_error{
+                errno, std::system_category(), "error calling jail_remove"};
+        }
     }
 }
 
