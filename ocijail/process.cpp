@@ -17,8 +17,11 @@ namespace ocijail {
 
 process::process(const json& process_json,
                  std::optional<std::filesystem::path> console_socket,
+                 bool detach,
                  int preserve_fds)
-    : console_socket_(console_socket), preserve_fds_(preserve_fds) {
+    : console_socket_(console_socket),
+      detach_(detach),
+      preserve_fds_(preserve_fds) {
     if (!process_json.is_object()) {
         malformed_config("process must be an object");
     }
@@ -110,13 +113,16 @@ process::process(const json& process_json,
         terminal_ = process_json["terminal"];
     }
     if (terminal_) {
-        if (!console_socket_) {
-            throw std::runtime_error{
-                "--console-socket is required when process.terminal is true"};
-        }
-        if (!fs::is_socket(*console_socket_)) {
-            throw std::runtime_error{
-                "--console-socket must be a path to a local domain socket"};
+        if (detach_) {
+            if (!console_socket_) {
+                throw std::runtime_error{
+                    "--console-socket is required when detached if "
+                    "process.terminal is true"};
+            }
+            if (!fs::is_socket(*console_socket_)) {
+                throw std::runtime_error{
+                    "--console-socket must be a path to a local domain socket"};
+            }
         }
     } else if (console_socket_) {
         throw std::runtime_error(
@@ -194,7 +200,7 @@ void process::validate() {
 
 std::tuple<int, int, int> process::pre_start() {
     int stdin_fd, stdout_fd, stderr_fd;
-    if (terminal_) {
+    if (terminal_ && console_socket_) {
         auto [control_fd, tty_fd] = open_pty();
         stdin_fd = stdout_fd = stderr_fd = tty_fd;
         send_pty_control_fd(*console_socket_, control_fd);
@@ -205,7 +211,7 @@ std::tuple<int, int, int> process::pre_start() {
         // Create a session for the container. Note: for the case
         // where terminal is requested, this happens as part of
         // send_pty_control_fd,
-        if (setsid() < 0) {
+        if (!terminal_ && setsid() < 0) {
             throw std::system_error{
                 errno, std::system_category(), "error calling setsid"};
         }

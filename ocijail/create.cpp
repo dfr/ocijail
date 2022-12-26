@@ -118,7 +118,7 @@ void create::run() {
     }
 
     auto& config_process = config["process"];
-    process proc{config_process, console_socket_, preserve_fds_};
+    process proc{config_process, console_socket_, true, preserve_fds_};
 
     // If the config contains a root path, use that, otherwise the
     // bundle directory must have a subdirectory named "root"

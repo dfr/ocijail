@@ -40,10 +40,9 @@ exec::exec(main_app& app) : app_(app) {
     sub->add_flag("--detach,-d",
                   detach_,
                   "Detach the command and execute in the background");
-    sub->add_option(
-        "--preserve-fds",
-        preserve_fds_,
-        "Number of additional file descriptors for the container");
+    sub->add_option("--preserve-fds",
+                    preserve_fds_,
+                    "Number of additional file descriptors for the container");
 
     sub->final_callback([this] { run(); });
 }
@@ -54,7 +53,7 @@ void exec::run() {
     if (tty_) {
         process_json["terminal"] = *tty_;
     }
-    process proc{process_json, console_socket_, preserve_fds_};
+    process proc{process_json, console_socket_, detach_, preserve_fds_};
 
     // Unit tests for config validation stop here.
     if (app_.get_test_mode() == test_mode::VALIDATION) {

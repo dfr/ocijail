@@ -107,20 +107,23 @@ class test_exec(unittest.TestCase):
         p = self.process()
         p["terminal"] = True
 
+        # Should succeed: non-detached is allowed withput --console-socket
+        self.check_good_process(p)
+
         # Should fail: terminal is true and --console-socket not present
-        self.check_bad_process(p)
+        self.check_bad_process(p, "--detach")
 
         with tempfile.TemporaryDirectory() as sock_dir:
             # Should still fail if --console-socket doesn't refer to a socket
             sock_path = os.path.join(sock_dir, "sock") 
             open(sock_path, "w").close()
-            self.check_bad_process(p, "--console-socket", sock_path)
+            self.check_bad_process(p, "--detach", "--console-socket", sock_path)
 
             # Should succeed
             os.remove(sock_path)
             s = socket.socket(socket.AF_UNIX)
             s.bind(sock_path)
-            self.check_good_process(p, "--console-socket", sock_path)
+            self.check_good_process(p, "--detach", "--console-socket", sock_path)
 
 if __name__ == "__main__":
     unittest.main()

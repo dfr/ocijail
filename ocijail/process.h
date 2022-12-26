@@ -11,6 +11,7 @@ struct process {
     // validate the input, throwing an error if necessary.
     process(const nlohmann::json& process,
             std::optional<std::filesystem::path> console_socket,
+            bool detach,
             int preserve_fds);
 
     // Like std::getenv but using the env list from this process
@@ -32,6 +33,7 @@ struct process {
     void set_uid_gid();
 
     std::optional<std::filesystem::path> console_socket_;
+    bool detach_;
     int preserve_fds_;
 
     // Copied out from the json during parsing
