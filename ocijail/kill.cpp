@@ -68,11 +68,6 @@ void kill::run() {
                 std::system_category(),
                 "sending signal to pid " + state["pid"].get<std::string>());
         }
-    } else {
-        std::stringstream ss;
-        ss << "not sending signal to container in with status \""
-           << state["status"] << "\"";
-        throw std::runtime_error(ss.str());
     }
 }
 
