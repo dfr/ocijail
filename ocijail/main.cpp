@@ -127,7 +127,7 @@ runtime_state::locked_state runtime_state::lock() {
 }
 
 main_app::main_app(const std::string& title) : CLI::App(title) {
-    add_option("--state-db",
+    add_option("--root",
                state_db_,
                "Override default location for state database");
     add_flag(
