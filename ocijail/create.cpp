@@ -28,6 +28,15 @@ struct oci_version {
 oci_version parse_version(std::string ociver) {
     std::vector<std::string_view> parts;
     auto tmp = std::string_view{ociver};
+    // Trim off any -rc.x suffix first
+    auto i = tmp.find_first_of("-");
+    if (i != std::string_view::npos) {
+        if (tmp.substr(i + 1, 3) != "rc.") {
+            throw std::runtime_error("malformed ociVersion " +
+                                     std::string(ociver));
+        }
+        tmp = tmp.substr(0, i);
+    }
     while (tmp.size() > 0) {
         auto i = tmp.find_first_of(".");
         if (i != std::string_view::npos) {
@@ -107,8 +116,9 @@ void create::run() {
     if (!config["ociVersion"].is_string()) {
         malformed_config("ociVersion must be a string");
     }
+    // Allow 1.0.x and 1.1.x
     auto ver = parse_version(config["ociVersion"]);
-    if (ver.major != "1" || ver.minor != "0") {
+    if (ver.major != "1" || !(ver.minor == "0" || ver.minor == "1")) {
         throw std::runtime_error{"create: unsupported OCI version " +
                                  std::string{config["ociVersion"]}};
     }

@@ -53,11 +53,15 @@ class test_create(unittest.TestCase):
         del c["ociVersion"]
         self.check_bad_config(c)
 
-        # ociVersion must be 1.0.x
+        # ociVersion must be 1.0.x or 1.1.x
         c = self.config()
         c["ociVersion"] = "1.0.0"
         self.check_good_config(c)
         c["ociVersion"] = "1.1.0"
+        self.check_good_config(c)
+        c["ociVersion"] = "1.1.0-rc.2"
+        self.check_good_config(c)
+        c["ociVersion"] = "1.2.0"
         self.check_bad_config(c)
 
     def test_process(self):
