@@ -28,10 +28,11 @@ struct oci_version {
 oci_version parse_version(std::string ociver) {
     std::vector<std::string_view> parts;
     auto tmp = std::string_view{ociver};
-    // Trim off any -rc.x suffix first
+    // Trim off any -rc.x or -dev suffix first
     auto i = tmp.find_first_of("-");
     if (i != std::string_view::npos) {
-        if (tmp.substr(i + 1, 3) != "rc.") {
+        auto suffix = tmp.substr(i+1);
+        if (suffix.substr(0, 3) != "rc." && suffix != "dev") {
             throw std::runtime_error("malformed ociVersion " +
                                      std::string(ociver));
         }

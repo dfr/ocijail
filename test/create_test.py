@@ -57,6 +57,8 @@ class test_create(unittest.TestCase):
         c = self.config()
         c["ociVersion"] = "1.0.0"
         self.check_good_config(c)
+        c["ociVersion"] = "1.0.2-dev"
+        self.check_good_config(c)
         c["ociVersion"] = "1.1.0"
         self.check_good_config(c)
         c["ociVersion"] = "1.1.0-rc.2"
