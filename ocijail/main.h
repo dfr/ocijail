@@ -39,7 +39,7 @@ class runtime_state {
     auto& operator[](auto&& key) { return state_[key]; }
     const auto& operator[](auto&& key) const { return state_[key]; }
     auto get_id() const { return id_; }
-    auto exists() const { return std::filesystem::is_directory(state_dir_); }
+    auto exists() const { return std::filesystem::is_regular_file(state_json_); }
     auto& get_state_dir() const { return state_dir_; }
 
     locked_state create();

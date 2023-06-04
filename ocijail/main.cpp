@@ -72,6 +72,7 @@ void runtime_state::locked_state::lock() {
 }
 
 runtime_state::locked_state runtime_state::create() {
+    std::filesystem::remove_all(state_dir_);
     std::filesystem::create_directories(state_dir_);
     auto fd = ::open(state_lock_.c_str(), O_RDWR | O_CREAT | O_EXLOCK);
     if (fd < 0) {
