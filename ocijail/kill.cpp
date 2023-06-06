@@ -62,11 +62,11 @@ void kill::run() {
     state.load();
 
     if (state["status"] == "created" || state["status"] == "running") {
-        if (::kill(state["pid"], signum) < 0) {
+        if (::kill(state["pid"], signum) < 0 && errno != ESRCH) {
             throw std::system_error(
                 errno,
                 std::system_category(),
-                "sending signal to pid " + state["pid"].get<std::string>());
+                "sending signal to pid " + std::to_string(state["pid"].get<int>()));
         }
     }
 }
