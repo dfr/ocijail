@@ -168,9 +168,7 @@ void process::validate() {
             throw std::system_error{errno, std::system_category(), args_[0]};
         }
         if (!fs::is_regular_file(cmd)) {
-            throw std::system_error{EACCES,
-                                    std::system_category(),
-                                    std::string{"exec: "} + args_[0]};
+            throw std::system_error{EACCES, std::system_category(), args_[0]};
         }
         return;
     } else {
@@ -194,7 +192,8 @@ void process::validate() {
                 }
             }
         }
-        throw std::system_error{ENOENT, std::system_category(), cmd.string()};
+        throw std::system_error{
+            ENOENT, std::system_category(), args_[0] + " not found in $PATH"};
     }
 }
 

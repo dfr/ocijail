@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #include <iostream>
 
@@ -67,6 +68,14 @@ void exec::run() {
     auto j = jail::find(int(state["jid"]));
 
     if (detach_) {
+        // Create a socket pair for coordinating create activities with
+        // our child process.
+        int create_sock[2];
+        if (::socketpair(AF_UNIX, SOCK_STREAM, 0, create_sock) < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error creating socket pair"};
+        }
+
         // Detach from parent and send the pid which will perform the
         // exec (if requested).
         auto pid = ::fork();
@@ -75,18 +84,77 @@ void exec::run() {
             if (pid_file_) {
                 std::ofstream{*pid_file_} << pid;
             }
+
+            // Signal the child to validate that the container process can be
+            // found.
+            char ch = 1;
+            auto n = ::write(create_sock[0], &ch, 1);
+            if (n < 0) {
+                throw std::system_error{errno,
+                                        std::system_category(),
+                                        "write to exec create socket"};
+            }
+
+            // Read back the child's status - this is our exit status. The
+            // child will have already written to stderr if necessary.
+            char status;
+            n = ::read(create_sock[0], &status, 1);
+            if (n < 0) {
+                throw std::system_error{errno,
+                                        std::system_category(),
+                                        "read from exec create socket"};
+            }
+            ::exit(status);
         } else {
             // Setup the tty if requested
             auto [stdin_fd, stdout_fd, stderr_fd] = proc.pre_start();
 
+            // Wait for our parent to signal us via the socket
+            char ch;
+            auto n = read(create_sock[1], &ch, 1);
+            if (n < 0) {
+                throw std::system_error{errno,
+                                        std::system_category(),
+                                        "error reading from create socket"};
+            }
+
+            char status = 0;
+            try {
+                // Our part of exec: validate process args.
+
+                // Enter the jail and set the requested working directory.
+                j.attach();
+
+                // Validate the process executable exists and can be executed
+                proc.validate();
+            } catch (const std::exception& e) {
+                std::string_view msg{e.what()};
+                ::write(2, msg.data(), msg.size());
+                status = 1;
+            }
+
+            n = write(create_sock[1], &status, 1);
+            if (n < 0) {
+                throw std::system_error{errno,
+                                        std::system_category(),
+                                        "error writing to exec create socket"};
+            }
+            ::close(create_sock[1]);
+
+            // If validate failed, don't try to exec - it will fail and double
+            // the error message reported to the user in a confusing way.
+            if (status != 0) {
+                ::exit(status);
+            }
+
             // Run the process inside the jail
-            j.attach();
             proc.exec(stdin_fd, stdout_fd, stderr_fd);
         }
     } else {
         // Otherwise, just exec in this process
         auto [stdin_fd, stdout_fd, stderr_fd] = proc.pre_start();
         j.attach();
+        proc.validate();
         proc.exec(stdin_fd, stdout_fd, stderr_fd);
     }
 }

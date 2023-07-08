@@ -31,7 +31,7 @@ oci_version parse_version(std::string ociver) {
     // Trim off any -rc.x or -dev suffix first
     auto i = tmp.find_first_of("-");
     if (i != std::string_view::npos) {
-        auto suffix = tmp.substr(i+1);
+        auto suffix = tmp.substr(i + 1);
         if (suffix.substr(0, 3) != "rc." && suffix != "dev") {
             throw std::runtime_error("malformed ociVersion " +
                                      std::string(ociver));
@@ -395,6 +395,11 @@ void create::run() {
                 errno, std::system_category(), "read from start fifo"};
         }
         ::close(start_wait_fd);
+
+        // If validate failed, don't try to run hooks or execve, just stop here.
+        if (status != 0) {
+            ::exit(status);
+        }
 
         // Run startContainer hooks inside the jail.
         hook::run_hooks(app_, config_hooks, "startContainer", state);
