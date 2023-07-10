@@ -50,7 +50,7 @@ class test_run(unittest.TestCase):
             }
         }
 
-    def create(self, bundle_dir, terminal=False):
+    def create(self, bundle_dir, terminal=False, expected_ret=0):
         pid_file = os.path.join(bundle_dir, "pid")
         args = [
             cmd,
@@ -89,7 +89,8 @@ class test_run(unittest.TestCase):
                 if ret != 0:
                     out = stderr.read().decode("utf-8")
                     print(f"failed with stderr: {out}")
-                    self.assertTrue(ret == 0)
+                    self.assertTrue(ret == expected_ret)
+                    return -1, ""
         with open(pid_file, "r") as f:
             pid = int(f.read())
         return pid, stdout
@@ -104,7 +105,7 @@ class test_run(unittest.TestCase):
         ret = subprocess.run(args=args)
         #self.assertTrue(ret.returncode == 0)
 
-    def run_with_config(self, c):
+    def run_with_config(self, c, expected_ret=0):
         with tempfile.TemporaryDirectory() as bundle_dir:
             with open(os.path.join(bundle_dir, "config.json"), "w") as f:
                 json.dump(c, f)
@@ -114,7 +115,9 @@ class test_run(unittest.TestCase):
                 terminal = c["process"]["terminal"]
             else:
                 terminal = False
-            pid, stdout = self.create(bundle_dir, terminal=terminal)
+            pid, stdout = self.create(bundle_dir, terminal=terminal, expected_ret=expected_ret)
+            if pid == -1:
+                return 1, ""
             self.start()
             out = stdout.read().decode("utf-8")
             stdout.close()
@@ -317,6 +320,91 @@ class test_run(unittest.TestCase):
             # Delete the container so that the tmpfs is unmounted
             # before we delete root_dir
             self.delete()
+
+    # setup is a function which is called to initialise the root, destination is
+    # the path inside the root for our mount and real_destination is the path
+    # inside the root after resolving symlinks
+    def symlink_test_helper(self, setup, destination, real_destination, expected_ret=0):
+        # Test mounting to a path which goes via a symbolic link
+        with tempfile.TemporaryDirectory() as root_dir:
+            with tempfile.NamedTemporaryFile(mode="wb", buffering=0) as file_to_mount:
+                shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+                file_to_mount.write(b"Hello World\n")
+                setup(root_dir)
+
+                c = self.config()
+                c["root"]["path"] = root_dir
+                c["process"]["args"] = ["cat", real_destination]
+                c["process"]["env"] = ["PATH=/rescue"]
+                c["mounts"] = [
+                    {
+                        "type": "nullfs",
+                        "destination": destination,
+                        "source": file_to_mount.name,
+                    },
+                ]
+                ret, out = self.run_with_config(c, expected_ret)
+                self.assertEqual(ret, expected_ret)
+                if ret == 0:
+                    self.assertEqual(out, "Hello World\n")
+                # Delete the container so that the file mount is unmounted
+                # before we delete root_dir
+                self.delete()
+
+    def test_mount_absolute_symlink(self):
+        def setup(root_dir):
+            # If mounting to /var/run/foo and /var/run is a symlink to /run, the
+            # mount should target {root_dir}/run/foo
+            os.mkdir(os.path.join(root_dir, "run"))
+            os.mkdir(os.path.join(root_dir, "var"))
+            os.symlink("/run", os.path.join(root_dir, "var/run"))
+        self.symlink_test_helper(setup, "/var/run/foo", "/run/foo")
+
+    def test_mount_relative_symlink(self):
+        def setup(root_dir):
+            # If mounting to /var/run/foo and /var/run is a symlink to somedir, the
+            # mount should target {root_dir}/var/somedir/foo
+            os.mkdir(os.path.join(root_dir, "var"))
+            os.symlink("somedir", os.path.join(root_dir, "var/run"))
+        self.symlink_test_helper(setup, "/var/run/foo", "/var/somedir/foo")
+
+    def test_mount_symlink_parent(self):
+        def setup(root_dir):
+            # If mounting to /var/run/foo and /var/run is a symlink to "../somedir", the
+            # mount should target {root_dir}/somedir/foo
+            # 
+            os.mkdir(os.path.join(root_dir, "somedir"))
+            os.mkdir(os.path.join(root_dir, "var"))
+            os.symlink("../somedir", os.path.join(root_dir, "var/run"))
+        self.symlink_test_helper(setup, "/var/run/foo", "/somedir/foo")
+
+    def test_mount_symlink_root_escape(self):
+        def setup(root_dir):
+            # Verify that its not possible for a mount to escape above the root
+            # directory using ".."
+            # 
+            os.mkdir(os.path.join(root_dir, "somedir"))
+            os.mkdir(os.path.join(root_dir, "var"))
+            os.symlink("../../somedir", os.path.join(root_dir, "var/run"))
+        self.symlink_test_helper(setup, "/var/run/foo", "/somedir/foo")
+
+    def test_mount_recursive_symlink(self):
+        def setup(root_dir):
+            # Make sure that symlinks to symlinks are resolve correctly
+            #
+            os.mkdir(os.path.join(root_dir, "var"))
+            os.symlink("somelink", os.path.join(root_dir, "var/run"))
+            os.symlink("somedir", os.path.join(root_dir, "var/somelink"))
+        self.symlink_test_helper(setup, "/var/run/foo", "/var/somedir/foo")
+
+    def test_mount_symlink_loop(self):
+        def setup(root_dir):
+            # Symlink loops should cause an error
+            #
+            os.mkdir(os.path.join(root_dir, "var"))
+            os.symlink("somelink", os.path.join(root_dir, "var/run"))
+            os.symlink("somelink", os.path.join(root_dir, "var/somelink"))
+        self.symlink_test_helper(setup, "/var/run/foo", "/var/somedir/foo", expected_ret=1)
 
 if __name__ == "__main__":
     if os.getenv("OCIJAIL_PATH"):

@@ -52,7 +52,7 @@ void delete_::run() {
     j.remove();
 
     if (state["config"].contains("mounts") && !state["config"]["mounts"].is_null()) {
-        unmount_volumes(state, state["root_path"], state["config"]["mounts"]);
+        unmount_volumes(app_, state, state["root_path"], state["config"]["mounts"]);
     }
 
     hook::run_hooks(app_, state["config"]["hooks"], "poststop", state);

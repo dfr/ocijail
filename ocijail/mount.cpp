@@ -179,14 +179,66 @@ static std::tuple<fs::path, fs::path> get_save_path(
     return std::make_tuple(save_dir, save_path);
 }
 
-static fs::path resolve_container_path(const fs::path& root_path,
-                                       const json& mount) {
-    // Strip off the leading '/' from destination if it has one
-    std::string path{mount["destination"]};
-    if (path[0] == '/') {
-        path = path.substr(1);
+static fs::path resolve_container_path_impl(main_app& app,
+                                            const fs::path& root_path,
+                                            fs::path resolved_path,
+                                            const fs::path& path,
+                                            int depth) {
+    app.log_debug() << "depth: " << depth << ", root_path: " << root_path
+                    << ", resolved_path: " << resolved_path
+                    << ", path: " << path;
+    if (depth >= MAXSYMLINKS) {
+        throw std::system_error{
+            ELOOP, std::system_category(), "resolving mount path"};
     }
-    return root_path / path;
+
+    // We need to resolve any symbolic links on the path within the given root
+    // so that containers cannot mount anything outside root_path
+    for (const auto& element : path) {
+        app.log_debug() << "resolved_path: " << resolved_path
+                        << ", element: " << element;
+        if (element.is_absolute()) {
+            resolved_path = root_path;
+        } else {
+            fs::path tmp_path;
+            if (element.string() == "..") {
+                if (resolved_path == root_path) {
+                    // Don't allow ".." past root
+                    tmp_path = resolved_path;
+                } else {
+                    tmp_path = resolved_path.parent_path();
+                }
+            } else {
+                tmp_path = resolved_path / element;
+            }
+            if (fs::is_symlink(tmp_path)) {
+                auto target = fs::read_symlink(tmp_path);
+                if (target.is_absolute()) {
+                    while (target.is_absolute()) {
+                        target = fs::path{target.string().substr(1)};
+                    }
+                    resolved_path = resolve_container_path_impl(
+                        app, root_path, root_path, target, depth + 1);
+                } else {
+                    resolved_path = resolve_container_path_impl(
+                        app, root_path, resolved_path, target, depth + 1);
+                }
+            } else {
+                resolved_path = tmp_path;
+            }
+        }
+    }
+    assert(resolved_path.string().starts_with(root_path.string()));
+
+    return resolved_path;
+}
+
+static fs::path resolve_container_path(main_app& app,
+                                       const fs::path& root_path,
+                                       const json& mount) {
+    fs::path path{mount["destination"]};
+    return resolve_container_path_impl(
+        app, root_path, root_path, fs::path{mount["destination"]}, 0);
 }
 
 void apply_devfs_rule(const fs::path& destination, std::string_view rule) {
@@ -247,11 +299,12 @@ static void create_directories(const fs::path& root_path,
     fs::create_directory(path);
 }
 
-static bool mount_volume(bool file_mount_supported,
+static bool mount_volume(main_app& app,
+                         bool file_mount_supported,
                          runtime_state& state,
                          const fs::path& root_path,
                          const json& mount) {
-    auto destination = resolve_container_path(root_path, mount);
+    auto destination = resolve_container_path(app, root_path, mount);
 
     std::string type = mount.contains("type") ? mount["type"] : "nullfs";
     if (type == "bind") {
@@ -372,11 +425,12 @@ retry:
     return file_mount_supported;
 }
 
-static void unmount_volume(bool file_mount_supported,
+static void unmount_volume(main_app& app,
+                           bool file_mount_supported,
                            runtime_state& state,
                            const fs::path& root_path,
                            const json& mount) {
-    auto destination = resolve_container_path(root_path, mount);
+    auto destination = resolve_container_path(app, root_path, mount);
 
     std::string type = mount.contains("type") ? mount["type"] : "nullfs";
     bool is_file_mount =
@@ -393,24 +447,25 @@ static void unmount_volume(bool file_mount_supported,
             throw std::system_error{
                 errno,
                 std::system_category(),
-                "mounting " + mount["destination"].get<std::string>()};
+                "unmounting " + mount["destination"].get<std::string>()};
         }
     }
 }
 
-void mount_volumes(runtime_state& state,
+void mount_volumes(main_app& app,
+                   runtime_state& state,
                    const fs::path& root_path,
                    const json& mounts) {
     bool file_mount_supported = true;
     try {
         for (auto& mount : mounts) {
-            file_mount_supported =
-                mount_volume(file_mount_supported, state, root_path, mount);
+            file_mount_supported = mount_volume(
+                app, file_mount_supported, state, root_path, mount);
         }
     } catch (const std::exception& e) {
         // Attempt to clean up in case we mounted something
         try {
-            unmount_volumes(state, root_path, mounts);
+            unmount_volumes(app, state, root_path, mounts);
         } catch (...) {
         }
         throw;
@@ -418,7 +473,8 @@ void mount_volumes(runtime_state& state,
     state["file_mount_supported"] = file_mount_supported;
 }
 
-void unmount_volumes(runtime_state& state,
+void unmount_volumes(main_app& app,
+                     runtime_state& state,
                      const fs::path& root_path,
                      const json& mounts) {
     bool file_mount_supported = state["file_mount_supported"];
@@ -428,7 +484,7 @@ void unmount_volumes(runtime_state& state,
     std::exception_ptr eptr{nullptr};
     for (auto& mount : mounts) {
         try {
-            unmount_volume(file_mount_supported, state, root_path, mount);
+            unmount_volume(app, file_mount_supported, state, root_path, mount);
         } catch (const std::exception&) {
             if (!eptr) {
                 eptr = std::current_exception();

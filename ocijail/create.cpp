@@ -256,7 +256,7 @@ void create::run() {
     // Mount filesystems, if requested and record unmount actions in the
     // state
     if (config_mounts.is_array()) {
-        mount_volumes(state, root_path, config_mounts);
+        mount_volumes(app_, state, root_path, config_mounts);
     }
 
     // Create the jail for our container. If we have a parent, attach
