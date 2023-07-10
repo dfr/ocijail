@@ -105,7 +105,11 @@ json runtime_state::report() const {
     res["id"] = id_;
     res["status"] = state_["status"];
     if (state_["status"] != "stopped") {
-        res["pid"] = state_["pid"];
+        if (state_.contains("pid")) {
+            res["pid"] = state_["pid"];
+        } else {
+            res["pid"] = -1;
+        }
     }
     res["bundle"] = state_["bundle"];
     if (state_["config"].contains("annotations")) {
