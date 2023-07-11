@@ -132,9 +132,8 @@ runtime_state::locked_state runtime_state::lock() {
 }
 
 main_app::main_app(const std::string& title) : CLI::App(title) {
-    add_option("--root",
-               state_db_,
-               "Override default location for state database");
+    add_option(
+        "--root", state_db_, "Override default location for state database");
     add_flag(
         "--version",
         [](size_t) {
@@ -157,6 +156,13 @@ main_app::main_app(const std::string& title) : CLI::App(title) {
     };
     add_option("--log-format", log_format_, "Log format")
         ->transform(CLI::CheckedTransformer(log_formats, CLI::ignore_case));
+    std::map<std::string, log_level> log_levels{
+        {"info", log_level::INFO},
+        {"warn", log_level::WARN},
+        {"debug", log_level::DEBUG},
+    };
+    add_option("--log-level", log_level_, "Log level")
+        ->transform(CLI::CheckedTransformer(log_levels, CLI::ignore_case));
     add_option("--log", log_file_, "Log file");
 
     require_subcommand(1);
@@ -181,7 +187,9 @@ static std::string log_timestamp() {
 }
 
 log_entry::~log_entry() {
-    app_.log_message(ss_.str());
+    if (level_ <= app_.get_log_level()) {
+        app_.log_message(ss_.str());
+    }
 }
 
 void main_app::log_error(const std::exception& e) {

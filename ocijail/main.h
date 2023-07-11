@@ -15,6 +15,12 @@ enum class log_format {
     JSON,
 };
 
+enum class log_level {
+    INFO,
+    WARN,
+    DEBUG,
+};
+
 enum class test_mode {
     NONE,        // not testing
     VALIDATION,  // test config validation
@@ -61,7 +67,7 @@ class runtime_state {
 class main_app;
 
 struct log_entry {
-    log_entry(main_app& app) : app_(app) {}
+    log_entry(main_app& app, log_level level) : app_(app), level_(level) {}
     ~log_entry();
 
     template <typename T>
@@ -70,6 +76,8 @@ struct log_entry {
     }
 
     main_app& app_;
+    log_level level_;
+
     mutable std::stringstream ss_;
 };
 
@@ -80,7 +88,9 @@ class main_app : public CLI::App {
         return {state_db_ / id, id};
     }
     auto get_test_mode() const { return test_mode_; }
-    log_entry log() { return log_entry{*this}; }
+    auto get_log_level() const { return log_level_; }
+    log_entry log() { return log_entry{*this, log_level::INFO}; }
+    log_entry log_debug() { return log_entry{*this, log_level::DEBUG}; }
     void log_error(const std::system_error& e);
     void log_error(const std::exception& e);
     void log_message(const std::string& msg);
@@ -89,6 +99,7 @@ class main_app : public CLI::App {
     std::filesystem::path state_db_{"/var/run/ocijail"};
     test_mode test_mode_{test_mode::NONE};
     log_format log_format_{log_format::TEXT};
+    log_level log_level_{log_level::INFO};
     std::optional<std::filesystem::path> log_file_;
     int log_fd_{2};
 };
