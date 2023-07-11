@@ -51,8 +51,10 @@ void delete_::run() {
     auto j = jail::find(int(state["jid"]));
     j.remove();
 
-    if (state["config"].contains("mounts") && !state["config"]["mounts"].is_null()) {
-        unmount_volumes(app_, state, state["root_path"], state["config"]["mounts"]);
+    if (state["config"].contains("mounts") &&
+        !state["config"]["mounts"].is_null()) {
+        unmount_volumes(
+            app_, state, state["root_path"], state["config"]["mounts"]);
     }
 
     hook::run_hooks(app_, state["config"]["hooks"], "poststop", state);

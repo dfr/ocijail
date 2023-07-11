@@ -66,7 +66,8 @@ void kill::run() {
             throw std::system_error(
                 errno,
                 std::system_category(),
-                "sending signal to pid " + std::to_string(state["pid"].get<int>()));
+                "sending signal to pid " +
+                    std::to_string(state["pid"].get<int>()));
         }
     }
 }
