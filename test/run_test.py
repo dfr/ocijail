@@ -34,7 +34,7 @@ class test_run(unittest.TestCase):
         test_run.count += 1
 
     def tearDown(self):
-        self.delete()
+        self.delete(False)
 
     def config(self):
         return {
@@ -100,10 +100,11 @@ class test_run(unittest.TestCase):
         ret = subprocess.run(args=args)
         self.assertTrue(ret.returncode == 0)
 
-    def delete(self):
+    def delete(self, check_returncode=True):
         args = [cmd, "delete", self.container_id]
         ret = subprocess.run(args=args)
-        #self.assertTrue(ret.returncode == 0)
+        if check_returncode:
+            self.assertTrue(ret.returncode == 0)
 
     def run_with_config(self, c, expected_ret=0):
         with tempfile.TemporaryDirectory() as bundle_dir:
@@ -317,6 +318,30 @@ class test_run(unittest.TestCase):
             ret, out = self.run_with_config(c)
             self.assertEqual(ret, 0)
             self.assertEqual(out, "Hello World\n")
+            # Delete the container so that the tmpfs is unmounted
+            # before we delete root_dir
+            self.delete()
+
+    def test_cleanup_mounts(self):
+        # Verify that /foo is removed strictly after /foo/dir1 and /foo/dir2
+        with tempfile.TemporaryDirectory() as root_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["process"]["args"] = ["sh", "-c", "exit 0"]
+            c["process"]["env"] = ["PATH=/rescue"]
+            c["mounts"] = [
+                {
+                    "type": "tmpfs",
+                    "destination": "/foo/dir1",
+                },
+                {
+                    "type": "tmpfs",
+                    "destination": "/foo/dir2",
+                },
+            ]
+            ret, out = self.run_with_config(c)
+            self.assertEqual(ret, 0)
             # Delete the container so that the tmpfs is unmounted
             # before we delete root_dir
             self.delete()

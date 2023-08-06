@@ -492,7 +492,19 @@ void unmount_volumes(main_app& app,
         }
     }
     try {
+        // We need to remove subdirectories before parents. The ordering
+        // recorded in create_directories is not enough - if two mounts are made
+        // to the same parent directory (e.g. /data/foo, /data/bar), then the
+        // parent removal needs to happen after both subdirectories are removed.
+        //
+        // We sort the list in descending order since subdictories paths are
+        // lexically greater than parent paths.
+        std::vector<std::string> paths;
         for (auto& dir : state["remove_on_unmount"]) {
+            paths.push_back(dir);
+        }
+        std::sort(paths.begin(), paths.end(), std::greater<std::string>());
+        for (auto& dir : paths) {
             if (fs::exists(dir)) {
                 fs::remove(dir);
             }
