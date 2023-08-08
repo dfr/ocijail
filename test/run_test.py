@@ -74,10 +74,12 @@ class test_run(unittest.TestCase):
             if terminal:
                 conn, _ = sock.accept()
                 msg, fds = recv_fds(conn, 512, 10)
-                self.assertEqual(len(fds), 1)
-                stdout = io.FileIO(fds[0], "w+")
                 conn.close()
                 sock.close()
+                proc.wait()
+                self.assertEqual(len(fds), 1)
+                stdout = io.FileIO(fds[0], "w+")
+                stderr = io.FileIO(os.dup(fds[0]), "w+")
             else:
                 # Steal the pipes so that they don't get closed during
                 # the call to proc.wait()
@@ -85,15 +87,15 @@ class test_run(unittest.TestCase):
                 stderr = proc.stderr
                 proc.stdout = None
                 proc.stderr = None
-                ret = proc.wait()
-                if ret != 0:
-                    out = stderr.read().decode("utf-8")
-                    print(f"failed with stderr: {out}")
-                    self.assertTrue(ret == expected_ret)
-                    return -1, ""
+            ret = proc.wait()
+            if ret != 0:
+                out = stderr.read().decode("utf-8")
+                print(f"failed with stderr: {out}")
+                self.assertTrue(ret == expected_ret)
+                return -1, stdout, stderr
         with open(pid_file, "r") as f:
             pid = int(f.read())
-        return pid, stdout
+        return pid, stdout, stderr
 
     def start(self):
         args = [cmd, "start", self.container_id]
@@ -116,27 +118,31 @@ class test_run(unittest.TestCase):
                 terminal = c["process"]["terminal"]
             else:
                 terminal = False
-            pid, stdout = self.create(bundle_dir, terminal=terminal, expected_ret=expected_ret)
+            pid, stdout, stderr = self.create(bundle_dir, terminal=terminal, expected_ret=expected_ret)
             if pid == -1:
-                return 1, ""
+                stdout.close()
+                stderr.close()
+                return 1, "", ""
             self.start()
             out = stdout.read().decode("utf-8")
+            err = stderr.read().decode("utf-8")
             stdout.close()
+            stderr.close()
             pid2, status = os.waitpid(pid, os.WEXITED)
             self.assertTrue(pid == pid2)
             self.assertEqual(status & 0xff, 0)
-            return status >> 8, out
+            return status >> 8, out, err
 
     def test_exit_code(self):
         c = self.config()
         c["process"]["args"] = ["sh", "-c", "exit 42"]
-        ret, _ = self.run_with_config(c)
+        ret, _, _ = self.run_with_config(c)
         self.assertEqual(ret, 42)
 
     def test_stdout(self):
         c = self.config()
         c["process"]["args"] = ["echo", "Hello", "World"]
-        ret, out = self.run_with_config(c)
+        ret, out, _ = self.run_with_config(c)
         self.assertEqual(ret, 0)
         self.assertEqual(out, "Hello World\n")
 
@@ -144,7 +150,7 @@ class test_run(unittest.TestCase):
         c = self.config()
         c["process"]["args"] = ["echo", "Hello", "World"]
         c["process"]["terminal"] = True
-        ret, out = self.run_with_config(c)
+        ret, out, _ = self.run_with_config(c)
         self.assertEqual(ret, 0)
         self.assertEqual(out, "Hello World\r\n")
 
@@ -155,7 +161,7 @@ class test_run(unittest.TestCase):
             c["root"]["path"] = root_dir
             c["process"]["args"] = ["sh", "-c", "echo Hello World > /file"]
             c["process"]["env"] = ["PATH=/rescue"]
-            ret, _ = self.run_with_config(c)
+            ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 0)
             with open(os.path.join(root_dir, "file"), "r") as f:
                 self.assertEqual(f.read(), "Hello World\n")
@@ -178,7 +184,7 @@ class test_run(unittest.TestCase):
                     }
                 ]
             }
-            ret, _ = self.run_with_config(c)
+            ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 99)
 
     def test_hook_prestart(self):
@@ -196,7 +202,7 @@ class test_run(unittest.TestCase):
                     }
                 ]
             }
-            ret, _ = self.run_with_config(c)
+            ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 99)
 
     def test_hook_create_container(self):
@@ -217,7 +223,7 @@ class test_run(unittest.TestCase):
                     }
                 ]
             }
-            ret, _ = self.run_with_config(c)
+            ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 42)
 
     def test_hook_start_container(self):
@@ -238,7 +244,7 @@ class test_run(unittest.TestCase):
                     }
                 ]
             }
-            ret, _ = self.run_with_config(c)
+            ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 42)
 
     def test_hook_poststop(self):
@@ -267,7 +273,7 @@ class test_run(unittest.TestCase):
                     }
                 ]
             }
-            ret, _ = self.run_with_config(c)
+            ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 123)
             self.assertTrue(os.path.exists(f"{scratch}/file"))
             self.delete()
@@ -281,7 +287,7 @@ class test_run(unittest.TestCase):
             c["root"]["path"] = root_dir
             c["process"]["args"] = ["echo", "Hello World"]
             c["process"]["env"] = [f"PATH=/{random_dir}"]
-            ret, out = self.run_with_config(c)
+            ret, out, _ = self.run_with_config(c)
             self.assertEqual(ret, 0)
             self.assertEqual(out, "Hello World\n")
 
@@ -292,7 +298,7 @@ class test_run(unittest.TestCase):
             c = self.config()
             c["root"]["path"] = root_dir
             c["process"]["args"] = [f"/{random_dir}/echo", "Hello World"]
-            ret, out = self.run_with_config(c)
+            ret, out, _ = self.run_with_config(c)
             self.assertEqual(ret, 0)
             self.assertEqual(out, "Hello World\n")
 
@@ -315,7 +321,7 @@ class test_run(unittest.TestCase):
             os.mkdir(os.path.join(root_dir, "tmpdir"))
             with open(os.path.join(root_dir, "tmpdir", "file"), "w") as f:
                 f.write("Hello World\n")
-            ret, out = self.run_with_config(c)
+            ret, out, _ = self.run_with_config(c)
             self.assertEqual(ret, 0)
             self.assertEqual(out, "Hello World\n")
             # Delete the container so that the tmpfs is unmounted
@@ -340,7 +346,30 @@ class test_run(unittest.TestCase):
                     "destination": "/foo/dir2",
                 },
             ]
-            ret, out = self.run_with_config(c)
+            ret, out, _ = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            # Delete the container so that the tmpfs is unmounted
+            # before we delete root_dir
+            self.delete()
+
+    def test_readonly_root(self):
+        # Running the container should not modify the root
+        with tempfile.TemporaryDirectory() as root_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["root"]["readonly"] = True
+            c["process"]["args"] = ["sh", "-c", "echo world > /hello; exit 0"]
+            c["process"]["env"] = ["PATH=/rescue"]
+            c["mounts"] = [
+                {
+                    "type": "tmpfs",
+                    "destination": "/tmpdir",
+                },
+            ]
+            ret, out, err = self.run_with_config(c)
+            self.assertEqual(err.count("Read-only file system"), 1)
+            self.assertFalse(os.path.exists(os.path.join(root_dir, "hello")))
             self.assertEqual(ret, 0)
             # Delete the container so that the tmpfs is unmounted
             # before we delete root_dir
@@ -368,7 +397,7 @@ class test_run(unittest.TestCase):
                         "source": file_to_mount.name,
                     },
                 ]
-                ret, out = self.run_with_config(c, expected_ret)
+                ret, out, _ = self.run_with_config(c, expected_ret)
                 self.assertEqual(ret, expected_ret)
                 if ret == 0:
                     self.assertEqual(out, "Hello World\n")

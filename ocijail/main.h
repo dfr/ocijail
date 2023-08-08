@@ -42,6 +42,7 @@ class runtime_state {
           state_json_(dir / "state.json"),
           state_lock_(dir / "state.lock") {}
 
+    bool contains(auto&& key) { return state_.contains(key); }
     auto& operator[](auto&& key) { return state_[key]; }
     const auto& operator[](auto&& key) const { return state_[key]; }
     auto get_id() const { return id_; }

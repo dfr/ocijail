@@ -5,6 +5,9 @@
         "env": ["PATH=/rescue"],
         "args": ["cat", "/tmpdir/file"]
     },
+    "root": {
+        "readonly": true
+    },
     "mounts": [
         {
             "type": "tmpfs",

@@ -299,10 +299,63 @@ static void create_directories(const fs::path& root_path,
     fs::create_directory(path);
 }
 
+int do_mount(
+    const std::vector<std::tuple<std::string, std::string>>& mount_opts,
+    int mount_flags) {
+    std::vector<iovec> iov;
+    iov.reserve(2 * mount_opts.size());
+    for (auto& [key, val] : mount_opts) {
+        iov.emplace_back(
+            iovec{reinterpret_cast<void*>(const_cast<char*>(key.c_str())),
+                  key.size() + 1});
+        iov.emplace_back(
+            iovec{reinterpret_cast<void*>(const_cast<char*>(val.c_str())),
+                  val.size() + 1});
+    }
+    return nmount(&iov[0], iov.size(), mount_flags);
+}
+
+static bool create_mount_point(runtime_state& state,
+                               const fs::path& root_path,
+                               const fs::path& destination,
+                               bool is_file_mount) {
+    auto destination_exists = fs::exists(destination);
+    if (destination_exists) {
+        if (is_file_mount) {
+            if (!fs::is_regular_file(destination)) {
+                throw std::runtime_error(
+                    "destination for file mount exists and is not a file");
+            }
+        } else {
+            if (!fs::is_directory(destination)) {
+                throw std::runtime_error(
+                    "destination for non-file mount exists and is not a "
+                    "directory");
+            }
+        }
+    } else {
+        if (is_file_mount) {
+            // Create parent directories if necessary and create an
+            // empty file to mount over
+            state["remove_on_unmount"].push_back(destination);
+            create_directories(root_path, destination.parent_path(), state);
+            std::ofstream{destination} << "";
+        } else {
+            create_directories(root_path, destination, state);
+        }
+    }
+    return destination_exists;
+}
+
+// If prepare_only is true, validate the mount and create the mount point if
+// necessary but don't actually mount. This is used to support read-only roots
+// where we need to prepare mount points in the read-write rootfs before we make
+// a read-only alias using nullfs.
 static bool mount_volume(main_app& app,
                          bool file_mount_supported,
                          runtime_state& state,
                          const fs::path& root_path,
+                         bool prepare_only,
                          const json& mount) {
     auto destination = resolve_container_path(app, root_path, mount);
 
@@ -350,30 +403,11 @@ static bool mount_volume(main_app& app,
         }
     }
 
-    auto destination_exists = fs::exists(destination);
-    if (destination_exists) {
-        if (is_file_mount) {
-            if (!fs::is_regular_file(destination)) {
-                throw std::runtime_error(
-                    "destination for file mount exists and is not a file");
-            }
-        } else {
-            if (!fs::is_directory(destination)) {
-                throw std::runtime_error(
-                    "destination for non-file mount exists and is not a "
-                    "directory");
-            }
-        }
-    } else {
-        if (is_file_mount) {
-            // Create parent directories if necessary and create an
-            // empty file to mount over
-            state["remove_on_unmount"].push_back(destination);
-            create_directories(root_path, destination.parent_path(), state);
-            std::ofstream{destination} << "";
-        } else {
-            create_directories(root_path, destination, state);
-        }
+    auto destination_exists =
+        create_mount_point(state, root_path, destination, is_file_mount);
+
+    if (prepare_only) {
+        return file_mount_supported;
     }
 
     for (auto& entry : pseudo_opts) {
@@ -396,17 +430,7 @@ retry:
             mount["source"], destination, fs::copy_options::overwrite_existing);
     } else {
         // Otherwise perform the actual mount.
-        std::vector<iovec> iov;
-        iov.reserve(2 * mount_opts.size());
-        for (auto& [key, val] : mount_opts) {
-            iov.emplace_back(
-                iovec{reinterpret_cast<void*>(const_cast<char*>(key.c_str())),
-                      key.size() + 1});
-            iov.emplace_back(
-                iovec{reinterpret_cast<void*>(const_cast<char*>(val.c_str())),
-                      val.size() + 1});
-        }
-        if (nmount(&iov[0], iov.size(), mount_flags) < 0) {
+        if (do_mount(mount_opts, mount_flags) < 0) {
             if (is_file_mount && errno == ENOTDIR) {
                 file_mount_supported = false;
                 goto retry;
@@ -455,12 +479,18 @@ static void unmount_volume(main_app& app,
 void mount_volumes(main_app& app,
                    runtime_state& state,
                    const fs::path& root_path,
+                   bool prepare_only,
                    const json& mounts) {
     bool file_mount_supported = true;
+
     try {
         for (auto& mount : mounts) {
-            file_mount_supported = mount_volume(
-                app, file_mount_supported, state, root_path, mount);
+            file_mount_supported = mount_volume(app,
+                                                file_mount_supported,
+                                                state,
+                                                root_path,
+                                                prepare_only,
+                                                mount);
         }
     } catch (const std::exception& e) {
         // Attempt to clean up in case we mounted something

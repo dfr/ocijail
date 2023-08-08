@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <sys/mount.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -133,12 +134,17 @@ void create::run() {
 
     // If the config contains a root path, use that, otherwise the
     // bundle directory must have a subdirectory named "root"
-    fs::path root_path;
-    if (config.contains("root") && config["root"].contains("path")) {
+    bool root_readonly = false;
+    auto root_path = bundle_path_ / "root";
+    auto readonly_root_path = state.get_state_dir() / "readonly_root";
+    if (config.contains("root")) {
         auto& config_root = config["root"];
-        root_path = fs::path{config_root["path"]};
-    } else {
-        root_path = bundle_path_ / "root";
+        if (config["root"].contains("path")) {
+            root_path = fs::path{config_root["path"]};
+        }
+        if (config_root.contains("readonly") && config_root["readonly"]) {
+            root_readonly = true;
+        }
     }
     if (!fs::is_directory(root_path)) {
         std::stringstream ss;
@@ -229,7 +235,11 @@ void create::run() {
     if (allow_chflags) {
         jconf.set("allow.chflags");
     }
-    jconf.set("path", root_path);
+    if (root_readonly) {
+        jconf.set("path", readonly_root_path);
+    } else {
+        jconf.set("path", root_path);
+    }
     jconf.set("ip4", jail::INHERIT);
     jconf.set("ip6", jail::INHERIT);
     if (config.contains("hostname")) {
@@ -253,10 +263,36 @@ void create::run() {
         state["parent_jail"] = *parent_jail;
     }
 
-    // Mount filesystems, if requested and record unmount actions in the
-    // state
+    // Create the state here in case we have a readonly root
+    auto lk = state.create();
+
+    // Mount filesystems if requested and record unmount actions in the
+    // state.
+    //
+    // If rootfs needs to be remounted read-only, we make two passes. The first
+    // prepares mount points and the second completes the mounts in our
+    // read-only alias.
+    state["root_readonly"] = false;
+    if (root_readonly) {
+        if (config_mounts.is_array()) {
+            mount_volumes(app_, state, root_path, true, config_mounts);
+        }
+        fs::create_directory(readonly_root_path);
+        std::vector<std::tuple<std::string, std::string>> mount_opts;
+        mount_opts.emplace_back("fstype", "nullfs");
+        mount_opts.emplace_back("fspath", readonly_root_path);
+        mount_opts.emplace_back("target", root_path);
+        if (do_mount(mount_opts, MNT_RDONLY) < 0) {
+            throw std::system_error(errno,
+                                    std::system_category(),
+                                    "mounting " + readonly_root_path.native());
+        }
+        root_path = readonly_root_path;
+        state["root_readonly"] = true;
+        state["readonly_root_path"] = readonly_root_path;
+    }
     if (config_mounts.is_array()) {
-        mount_volumes(app_, state, root_path, config_mounts);
+        mount_volumes(app_, state, root_path, false, config_mounts);
     }
 
     // Create the jail for our container. If we have a parent, attach
@@ -284,7 +320,6 @@ void create::run() {
     // need to create the start fifo before forking - this will be
     // used to pause the container until start is called.
     umask(077);
-    auto lk = state.create();
     auto start_wait = state.get_state_dir() / "start_wait";
     if (mkfifo(start_wait.c_str(), 0600) < 0) {
         throw std::system_error{

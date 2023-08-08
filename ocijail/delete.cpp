@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <sys/mount.h>
 #include <unistd.h>
 #include <iostream>
 
@@ -51,10 +52,24 @@ void delete_::run() {
     auto j = jail::find(int(state["jid"]));
     j.remove();
 
+    bool root_readonly = false;
+    if (state.contains("root_readonly")) {
+        root_readonly = state["root_readonly"];
+    }
+    fs::path root_path = state["root_path"];
+    if (root_readonly) {
+        root_path = fs::path{state["readonly_root_path"]};
+    }
     if (state["config"].contains("mounts") &&
         !state["config"]["mounts"].is_null()) {
-        unmount_volumes(
-            app_, state, state["root_path"], state["config"]["mounts"]);
+        unmount_volumes(app_, state, root_path, state["config"]["mounts"]);
+    }
+    if (root_readonly) {
+        if (::unmount(root_path.c_str(), MNT_FORCE) > 0) {
+            throw std::system_error{errno,
+                                    std::system_category(),
+                                    "unmounting " + root_path.native()};
+        }
     }
 
     hook::run_hooks(app_, state["config"]["hooks"], "poststop", state);
