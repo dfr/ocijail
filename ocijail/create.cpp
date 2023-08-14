@@ -211,14 +211,25 @@ void create::run() {
     // parent jail where this is not set.
     bool allow_chflags = true;
 
-    // Get the parent jail name (if any).
+    // Get the parent jail name and requested vnet type (if any)
     std::optional<std::string> parent_jail;
+    auto vnet = jail::INHERIT;
     if (config.contains("annotations")) {
         auto config_annotations = config["annotations"];
         if (config_annotations.contains("org.freebsd.parentJail")) {
             parent_jail = config_annotations["org.freebsd.parentJail"];
             auto pj = jail::find(*parent_jail);
             allow_chflags = pj.get<bool>("allow.chflags");
+        }
+        if (config_annotations.contains("org.freebsd.jail.vnet")) {
+            std::string val = config_annotations["org.freebsd.jail.vnet"];
+            if (val == "new") {
+                vnet = jail::NEW;
+            } else if (val == "inherit") {
+                vnet = jail::INHERIT;
+            } else {
+                throw std::runtime_error("bad value for org.freebsd.jail.vnet: " + val);
+            }
         }
     }
 
@@ -240,8 +251,12 @@ void create::run() {
     } else {
         jconf.set("path", root_path);
     }
-    jconf.set("ip4", jail::INHERIT);
-    jconf.set("ip6", jail::INHERIT);
+    if (vnet == jail::NEW) {
+        jconf.set("vnet", vnet);
+    } else {
+        jconf.set("ip4", jail::INHERIT);
+        jconf.set("ip6", jail::INHERIT);
+    }
     if (config.contains("hostname")) {
         jconf.set("host.hostname", config["hostname"]);
         jconf.set("host", jail::NEW);
