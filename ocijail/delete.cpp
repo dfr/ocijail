@@ -45,9 +45,25 @@ void delete_::run() {
         state["status"] = "stopped";
     }
 
-    if (state["status"] != "stopped") {
+    // The specification limits delete to just containers in "stopped" state. In
+    // practice, both runc and crun relax this requirement:
+    //
+    // - If the container is "stopped" then just delete it.
+    // - If the container is "created", send it a KILL signal and delete it.
+    // - If the container is "running" (or for crun, any other state) and the
+    //   force flag is set, send it a KILL signal and delete it.
+    //
+    // We follow the more restrictive crun behaviour.
+    if (state["status"] == "stopped") {
+        // Nothing to do here
+    } else if (state["status"] == "created") {
+        ::kill(state["pid"], SIGKILL);
+    } else if (state["status"] == "running" && force_) {
+        ::kill(state["pid"], SIGKILL);
+    } else {
         std::stringstream ss;
-        ss << "delete: container not in \"stopped\" state (currently "
+        ss << "delete: container not in \"stopped\" or \"created\" state "
+              "(currently "
            << state["status"] << ")";
         throw std::runtime_error(ss.str());
     }
