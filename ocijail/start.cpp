@@ -32,7 +32,10 @@ void start::run() {
     state.load();
 
     if (state["status"] != "created") {
-        throw std::runtime_error("start: container not in 'created' state");
+        std::stringstream ss;
+        ss << "start: container not in \"created\" state (currently "
+           << state["status"] << ")";
+        throw std::runtime_error(ss.str());
     }
     state["status"] = "running";
     state.save();

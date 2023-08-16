@@ -46,7 +46,10 @@ void delete_::run() {
     }
 
     if (state["status"] != "stopped") {
-        throw std::runtime_error("start: container not in 'stopped' state");
+        std::stringstream ss;
+        ss << "delete: container not in \"stopped\" state (currently "
+           << state["status"] << ")";
+        throw std::runtime_error(ss.str());
     }
 
     auto j = jail::find(int(state["jid"]));
