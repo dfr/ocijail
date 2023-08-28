@@ -312,7 +312,7 @@ int do_mount(
             iovec{reinterpret_cast<void*>(const_cast<char*>(val.c_str())),
                   val.size() + 1});
     }
-    return nmount(&iov[0], iov.size(), mount_flags);
+    return nmount(&iov[0], iov.size(), mount_flags | MNT_IGNORE);
 }
 
 static bool create_mount_point(runtime_state& state,
