@@ -34,6 +34,9 @@ void delete_::run() {
 
     // If some other process has already deleted the state, just return.
     if (!state.exists()) {
+        // Delete the state directory if it exists (e.g. after an unclean
+        // shutdown).
+        state.remove_all();
         return;
     }
 
