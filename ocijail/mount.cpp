@@ -468,6 +468,10 @@ static void unmount_volume(main_app& app,
         }
     } else {
         if (::unmount(destination.c_str(), MNT_FORCE) < 0) {
+            // unmount will return EINVAL if the mount doesn't exist
+            if (errno == EINVAL) {
+                return;
+            }
             throw std::system_error{
                 errno,
                 std::system_category(),
