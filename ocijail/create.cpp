@@ -258,7 +258,7 @@ void create::run() {
         jconf.set("ip6", jail::INHERIT);
     }
     if (config.contains("hostname")) {
-        jconf.set("host.hostname", config["hostname"]);
+        jconf.set("host.hostname", to_string(config["hostname"]));
         jconf.set("host", jail::NEW);
     } else {
         jconf.set("host", jail::INHERIT);
