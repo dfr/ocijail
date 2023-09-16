@@ -29,10 +29,7 @@ void state::run() {
     state.load();
 
     // update state
-    if (::kill(state["pid"], 0) < 0) {
-        state["status"] = "stopped";
-        state.save();
-    }
+    state.check_status();
 
     std::cout << state.report();
 }

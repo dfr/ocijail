@@ -44,9 +44,7 @@ void delete_::run() {
     state.load();
 
     // update state
-    if (::kill(state["pid"], 0) < 0) {
-        state["status"] = "stopped";
-    }
+    state.check_status();
 
     // The specification limits delete to just containers in "stopped" state. In
     // practice, both runc and crun relax this requirement:

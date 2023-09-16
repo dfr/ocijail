@@ -50,6 +50,7 @@ class runtime_state {
         return std::filesystem::is_regular_file(state_json_);
     }
     auto& get_state_dir() const { return state_dir_; }
+    void check_status();
 
     locked_state create();
     void remove_all();
@@ -90,6 +91,7 @@ class main_app : public CLI::App {
     runtime_state get_runtime_state(std::string_view id) {
         return {state_db_ / id, id};
     }
+    auto get_state_db() const { return state_db_; }
     auto get_test_mode() const { return test_mode_; }
     auto get_log_level() const { return log_level_; }
     log_entry log() { return log_entry{*this, log_level::INFO}; }

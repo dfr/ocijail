@@ -1,3 +1,4 @@
+#include <signal.h>
 #include <fcntl.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -8,6 +9,7 @@
 #include "ocijail/delete.h"
 #include "ocijail/exec.h"
 #include "ocijail/kill.h"
+#include "ocijail/list.h"
 #include "ocijail/main.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
@@ -26,6 +28,7 @@ int main(int argc, char** argv) {
     exec::init(app);
     kill::init(app);
     state::init(app);
+    list::init(app);
 
     try {
         app.parse(argc, argv);
@@ -129,6 +132,15 @@ runtime_state::locked_state runtime_state::lock() {
             errno, std::system_category(), "locking state lock");
     }
     return {true, fd};
+}
+
+void runtime_state::check_status() {
+    if (state_["status"] == "created" || state_["status"] == "running") {
+        if (::kill(state_["pid"], 0) < 0 && errno == ESRCH) {
+            state_["status"] = "stopped";
+            save();
+        }
+    }
 }
 
 main_app::main_app(const std::string& title) : CLI::App(title) {
