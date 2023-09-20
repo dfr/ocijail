@@ -192,6 +192,12 @@ void process::validate() {
                 }
             }
         }
+        // The command may be relative to the working directory
+        auto workdir_cmd = cwd_ / cmd;
+        if (::eaccess(workdir_cmd.c_str(), X_OK) == 0 &&
+            fs::is_regular_file(workdir_cmd)) {
+            return;
+        }
         throw std::system_error{
             ENOENT, std::system_category(), args_[0] + " not found in $PATH"};
     }
