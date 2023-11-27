@@ -17,10 +17,10 @@ install_rules_setup()
 
 http_archive(
     name = "cliutils_cli11",
-    strip_prefix = "CLI11-2.2.0",
+    strip_prefix = "CLI11-2.3.2",
     build_file = "//third_party:BUILD.cli11",
-    url = "https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.2.0.zip",
-    sha256 = "1cb6906a2a9c8136cd6da547dc01c6cb348d787138199b2c40025a1fc9f5d81e",
+    url = "https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.3.2.zip",
+    sha256 = "562c4be7507dc6fb4997ecd648bf935d84efe17b54715fa5cfbddac05279f668",
 )
 
 http_archive(

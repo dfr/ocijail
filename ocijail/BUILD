@@ -3,6 +3,9 @@ cc_binary(
     copts = [
         "-std=c++20",
     ],
+    linkopts = [
+        "-lm",
+    ],
     srcs = glob([
         "*.cpp",
         "*.h",

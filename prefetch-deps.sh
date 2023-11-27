@@ -3,7 +3,7 @@
 cd distfiles
 fetch https://github.com/google/bazel_rules_install/archive/refs/heads/main.zip
 fetch https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz
-fetch https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.2.0.zip
+fetch https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.3.2.zip
 fetch https://github.com/nlohmann/json/releases/download/v3.11.2/include.zip
 
 # Taken from bazel-5.3.0/distdir_deps.bzl
