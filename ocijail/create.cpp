@@ -228,7 +228,8 @@ void create::run() {
             } else if (val == "inherit") {
                 vnet = jail::INHERIT;
             } else {
-                throw std::runtime_error("bad value for org.freebsd.jail.vnet: " + val);
+                throw std::runtime_error(
+                    "bad value for org.freebsd.jail.vnet: " + val);
             }
         }
     }
