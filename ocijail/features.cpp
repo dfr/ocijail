@@ -72,7 +72,7 @@ void features::run() {
     };
 
     features["ociVersionMin"] = "1.0.0";
-    features["ociVersionMax"] = "1.2.0";
+    features["ociVersionMax"] = "1.3.0";
     for (auto hook : hooks) {
         features["hooks"].push_back(hook);
     }

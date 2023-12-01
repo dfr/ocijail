@@ -5,6 +5,7 @@
 #include <sys/uio.h>
 #include <sys/wait.h>
 #include <iostream>
+#include <iomanip>
 
 #include "ocijail/main.h"
 #include "ocijail/mount.h"
@@ -356,7 +357,8 @@ static bool mount_volume(main_app& app,
                          runtime_state& state,
                          const fs::path& root_path,
                          bool prepare_only,
-                         const json& mount) {
+                         const json& mount,
+                         const std::vector<device>& devices) {
     auto destination = resolve_container_path(app, root_path, mount);
 
     std::string type = mount.contains("type") ? mount["type"] : "nullfs";
@@ -442,6 +444,14 @@ retry:
             throw std::system_error(
                 errno, std::system_category(), "mounting " + ss.str());
         }
+        if (type == "devfs") {
+            for (const auto& device : devices) {
+                std::stringstream ss;
+                ss << "path " << device.path.native() << " unhide mode "
+                   << std::showbase << std::oct << device.mode;
+                apply_devfs_rule(destination, ss.str());
+            }
+        }
     }
 
     for (auto& entry : pseudo_opts) {
@@ -488,7 +498,8 @@ void mount_volumes(main_app& app,
                    runtime_state& state,
                    const fs::path& root_path,
                    bool prepare_only,
-                   const json& mounts) {
+                   const json& mounts,
+                   const std::vector<device>& devices) {
     bool file_mount_supported = true;
 
     try {
@@ -498,7 +509,8 @@ void mount_volumes(main_app& app,
                                                 state,
                                                 root_path,
                                                 prepare_only,
-                                                mount);
+                                                mount,
+                                                devices);
         }
     } catch (const std::exception& e) {
         // Attempt to clean up in case we mounted something

@@ -1,0 +1,20 @@
+{
+    "ociVersion": "1.0.2",
+    "process": {
+        "cwd": "/",
+        "env": ["PATH=/rescue"],
+        "args": ["ls", "-l", "/dev"]
+    },
+    "freebsd": {
+        "devices": [{
+            "path": "pf",
+            "mode": "700"
+        }]
+    },
+    "mounts": [{
+        "type": "devfs",
+        "source": "devfs",
+        "destination": "/dev",
+        "options": ["ruleset=4"]
+    }]
+}

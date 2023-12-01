@@ -3,6 +3,8 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
@@ -54,6 +56,76 @@ oci_version parse_version(std::string ociver) {
     }
     return oci_version{
         std::string{parts[0]}, std::string{parts[1]}, std::string{parts[2]}};
+}
+
+static ocijail::jail::sharing parse_sharing(const std::string& ns,
+                                            std::string val) {
+    if (val == "disable") {
+        return ocijail::jail::DISABLE;
+    } else if (val == "new") {
+        return ocijail::jail::NEW;
+    } else if (val == "inherit") {
+        return ocijail::jail::INHERIT;
+    } else {
+        std::stringstream ss;
+        ss << "bad value for sharing " << ns << ": " << val;
+        throw std::runtime_error(ss.str());
+    }
+}
+
+static void set_sharing(ocijail::jail::config& jconf,
+                        const json& params,
+                        const std::string& subsys) {
+    if (params.contains(subsys)) {
+        jconf.set(subsys, parse_sharing(subsys, params[subsys]));
+    }
+}
+
+static void set_addresses(ocijail::jail::config& jconf,
+                          const json& params,
+                          const std::string& addr,
+                          const std::string& jaddr,
+                          sa_family_t af) {
+    using ocijail::malformed_config;
+    if (params.contains(addr)) {
+        auto& addr_list = params[addr];
+        if (!addr_list.is_array()) {
+            malformed_config("ip4.addr and ip6.addr must be arrays");
+        }
+        addrinfo hints{
+            .ai_flags = AI_NUMERICHOST,
+            .ai_family = af,
+            .ai_socktype = SOCK_STREAM,
+            .ai_protocol = 0,
+            .ai_addrlen = 0,
+            .ai_canonname = nullptr,
+            .ai_addr = nullptr,
+            .ai_next = nullptr
+        };
+        std::vector<std::byte> addrs;
+        for (auto& ip : addr_list) {
+            if (!ip.is_string()) {
+                malformed_config("IP addresses must be strings");
+            }
+            addrinfo* ai0{nullptr};
+            int error = getaddrinfo(ip.get<std::string>().c_str(), nullptr, &hints, &ai0);
+            if (error) {
+                throw std::runtime_error{std::string{"error from getaddrinfo: "}
+                                         + std::string{gai_strerror(error)}};
+            }
+            for (auto ai = ai0; ai; ai = ai->ai_next) {
+                if (af == AF_INET) {
+                    auto sin4 = reinterpret_cast<sockaddr_in*>(ai->ai_addr);
+                    std::copy_n(reinterpret_cast<std::byte*>(&sin4->sin_addr), sizeof(in_addr), std::back_inserter(addrs));
+                } else {
+                    auto sin6 = reinterpret_cast<sockaddr_in6*>(ai->ai_addr);
+                    std::copy_n(reinterpret_cast<std::byte*>(&sin6->sin6_addr), sizeof(in6_addr), std::back_inserter(addrs));
+                }
+            }
+            freeaddrinfo(ai0);
+        }
+        jconf.set(jaddr, addrs);
+    }
 }
 
 }  // namespace
@@ -118,9 +190,9 @@ void create::run() {
     if (!config["ociVersion"].is_string()) {
         malformed_config("ociVersion must be a string");
     }
-    // Allow 1.0.x, 1.1.x and 1.2.x
+    // Allow 1.0.x, 1.1.x, 1.2.x and 1.3.x
     auto ver = parse_version(config["ociVersion"]);
-    if (ver.major != "1" || !(ver.minor == "0" || ver.minor == "1" || ver.minor == "2")) {
+    if (ver.major != "1" || ver.minor > "3") {
         throw std::runtime_error{"create: unsupported OCI version " +
                                  std::string{config["ociVersion"]}};
     }
@@ -207,62 +279,125 @@ void create::run() {
         hook::validate_hooks(app_, config_hooks, "poststop");
     }
 
-    // Default to setting allow.chflags but disable if we have a
-    // parent jail where this is not set.
-    bool allow_chflags = true;
-
-    // Get the parent jail name and requested vnet type (if any)
+    // Create a jail config from the OCI config. If we have a freebsd config,
+    // jail parameters are taken from that, otherwise we fall back to using
+    // org.freebsd annotations to get the parent jail (if any) and network
+    // settings.
+    jail::config jconf;
     std::optional<std::string> parent_jail;
-    auto vnet = jail::INHERIT;
-    if (config.contains("annotations")) {
-        auto config_annotations = config["annotations"];
-        if (config_annotations.contains("org.freebsd.parentJail")) {
-            parent_jail = config_annotations["org.freebsd.parentJail"];
-            auto pj = jail::find(*parent_jail);
-            allow_chflags = pj.get<bool>("allow.chflags");
-        }
-        if (config_annotations.contains("org.freebsd.jail.vnet")) {
-            std::string val = config_annotations["org.freebsd.jail.vnet"];
-            if (val == "new") {
-                vnet = jail::NEW;
-            } else if (val == "inherit") {
-                vnet = jail::INHERIT;
-            } else {
-                throw std::runtime_error(
-                    "bad value for org.freebsd.jail.vnet: " + val);
+
+    // Set name to the container id (possible prefixed with parent name, see
+    // below).
+    jconf.set("name", id_);
+    auto& config_freebsd = config["freebsd"];
+    std::vector<device> devices;
+    if (!config_freebsd.is_null()) {
+        if (config_freebsd.contains("devices")) {
+            auto& freebsd_devices = config_freebsd["devices"];
+            if (!freebsd_devices.is_array()) {
+                malformed_config("if present, freebsd.devices must be an array");
+            }
+            for (const auto& device : freebsd_devices) {
+                devices.emplace_back(device["path"].get<std::string>(),
+                                     device["mode"].get<uint32_t>());
             }
         }
-    }
-
-    // Create a jail config from the OCI config
-    jail::config jconf;
-    if (parent_jail) {
-        jconf.set("name", *parent_jail + "." + id_);
-    } else {
-        jconf.set("name", id_);
+        if (config_freebsd.contains("jail")) {
+            auto& freebsd_jail = config_freebsd["jail"];
+            if (!freebsd_jail.is_object()) {
+                malformed_config("if present, freebsd.jail must be an object");
+            }
+            if (freebsd_jail.contains("parent")) {
+                parent_jail = freebsd_jail["parent"];
+                state["parent_jail"] = *parent_jail;
+                jconf.set("name", *parent_jail + "." + id_);
+            }
+            set_sharing(jconf, freebsd_jail, "vnet");
+            set_sharing(jconf, freebsd_jail, "ip4");
+            set_sharing(jconf, freebsd_jail, "ip6");
+            set_sharing(jconf, freebsd_jail, "host");
+            set_sharing(jconf, freebsd_jail, "sysvmsg");
+            set_sharing(jconf, freebsd_jail, "sysvsem");
+            set_sharing(jconf, freebsd_jail, "sysvshm");
+            set_addresses(jconf, freebsd_jail, "ip4Addr", "ip4.addr", AF_INET);
+            set_addresses(jconf, freebsd_jail, "ip6Addr", "ip6.addr", AF_INET6);
+            if (freebsd_jail.contains("enforceStatfs")) {
+                jconf.set("enforce_statfs", freebsd_jail["enforceStatfs"].get<uint32_t>());
+            }
+            if (freebsd_jail.contains("allow")) {
+                auto& jail_allow = freebsd_jail["allow"];
+                if (!jail_allow.is_object()) {
+                    malformed_config("if present, freebsd.jail.allow must be an object");
+                }
+                if (jail_allow["setHostname"]) {
+                    jconf.set("allow.set_hostname");
+                }
+                if (jail_allow["rawSockets"]) {
+                    jconf.set("allow.raw_sockets");
+                }
+                if (jail_allow["chflags"]) {
+                    jconf.set("allow.chflags");
+                }
+                if (jail_allow["quotas"]) {
+                    jconf.set("allow.quotas");
+                }
+                if (jail_allow["socketAf"]) {
+                    jconf.set("allow.socket_af");
+                }
+                if (jail_allow["mlock"]) {
+                    jconf.set("allow.mlock");
+                }
+                if (jail_allow["reservedPorts"]) {
+                    jconf.set("allow.reserved_ports");
+                }
+                if (jail_allow["suser"]) {
+                    jconf.set("allow.suser");
+                }
+            }
+        }
+    } else if (config.contains("annotations")) {
+        // Get the parent jail name and requested vnet type (if any)
+        auto config_annotations = config["annotations"];
+        jconf.set("host", jail::NEW);
+        if (config_annotations.contains("org.freebsd.parentJail")) {
+            parent_jail = config_annotations["org.freebsd.parentJail"];
+            state["parent_jail"] = *parent_jail;
+            jconf.set("name", *parent_jail + "." + id_);
+            jconf.set("ip4", jail::INHERIT);
+            jconf.set("ip6", jail::INHERIT);
+        }
+        if (config_annotations.contains("org.freebsd.jail.vnet")) {
+            auto vnet = parse_sharing(
+                "vnet", config_annotations["org.freebsd.jail.vnet"]);
+            if (vnet == jail::NEW) {
+                jconf.set("vnet", vnet);
+            } else {
+                jconf.set("ip4", jail::INHERIT);
+                jconf.set("ip6", jail::INHERIT);
+            }
+        }
+        jconf.set("enforce_statfs", 1u);
+        jconf.set("allow.raw_sockets");
+        // Default to setting allow.chflags but disable if we have a
+        // parent jail where this is not set.
+        if (parent_jail) {
+            auto pj = jail::find(*parent_jail);
+            if (pj.get<bool>("allow.chflags")) {
+                jconf.set("allow.chflags");
+            }
+        } else {
+            jconf.set("allow.chflags");
+        }
     }
     jconf.set("persist");
-    jconf.set("enforce_statfs", 1u);
-    jconf.set("allow.raw_sockets");
-    if (allow_chflags) {
-        jconf.set("allow.chflags");
-    }
     if (root_readonly) {
         jconf.set("path", readonly_root_path);
     } else {
         jconf.set("path", root_path);
     }
-    if (vnet == jail::NEW) {
-        jconf.set("vnet", vnet);
-    } else {
-        jconf.set("ip4", jail::INHERIT);
-        jconf.set("ip6", jail::INHERIT);
-    }
-    if (config.contains("hostname")) {
+    if (config.contains("hostname") && jconf.contains("host") &&
+        jconf.get<jail::sharing>("host") == jail::NEW) {
         jconf.set("host.hostname", config["hostname"].get<std::string>());
-        jconf.set("host", jail::NEW);
-    } else {
-        jconf.set("host", jail::INHERIT);
     }
 
     // Unit tests for config validation stop here.
@@ -275,9 +410,6 @@ void create::run() {
     state["bundle"] = bundle_path_;
     state["config"] = config;
     state["status"] = "created";
-    if (parent_jail) {
-        state["parent_jail"] = *parent_jail;
-    }
 
     // Create the state here in case we have a readonly root
     auto lk = state.create();
@@ -291,7 +423,7 @@ void create::run() {
     state["root_readonly"] = false;
     if (root_readonly) {
         if (config_mounts.is_array()) {
-            mount_volumes(app_, state, root_path, true, config_mounts);
+            mount_volumes(app_, state, root_path, true, config_mounts, devices);
         }
         fs::create_directory(readonly_root_path);
         std::vector<std::tuple<std::string, std::string>> mount_opts;
@@ -308,11 +440,11 @@ void create::run() {
         state["readonly_root_path"] = readonly_root_path;
     }
     if (config_mounts.is_array()) {
-        mount_volumes(app_, state, root_path, false, config_mounts);
+        mount_volumes(app_, state, root_path, false, config_mounts, devices);
     }
 
-    // Create the jail for our container. If we have a parent, attach
-    // to that first.
+    // Create the jail for our container. If we have a parent, adjust its
+    // children.max if necessary.
     if (parent_jail) {
         auto pj = jail::find(*parent_jail);
         auto current_child_count = pj.get<uint32_t>("children.cur");

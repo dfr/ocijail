@@ -22,13 +22,15 @@ void jail::config::set(const std::string& key, const value& val, const std::sour
     // Validate parameter types
     if (key == "jid" || key == "devfs_ruleset" || key == "enforce_statfs") {
         check_value<uint32_t>(key, val, loc);
-    } else if (key == "ip4" || key == "ip6") {
-        check_value<ns>(key, val, loc);
+    } else if (key == "ip4" || key == "ip6" || key == "sysvmsg" || key == "sysvsem" || key == "sysvshm") {
+        check_value<sharing>(key, val, loc);
     } else if (key == "host" || key == "vnet") {
-        check_value<ns>(key, val, loc);
-        if (std::get<ns>(val) == DISABLED) {
+        check_value<sharing>(key, val, loc);
+        if (std::get<sharing>(val) == DISABLE) {
             throw std::runtime_error{std::format("jail::config::set: value cannot be DISABLE, called from: {}:{}", loc.file_name(), loc.line())};
         }
+    } else if (key == "ip4.addr" || key == "ip6.addr") {
+        check_value<std::vector<std::byte>>(key, val, loc);
     } else if (key == "persist" || key == "sysvmsg" || key == "sysvsem" ||
                key == "sysvshm" || key.starts_with("allow.")) {
         check_value<std::monostate>(key, val, loc);
@@ -122,7 +124,10 @@ std::vector<iovec> jail::get_iovec(config& jconf, std::array<char, 1024>& errbuf
                 iovec{reinterpret_cast<void*>(p), sizeof(int32_t)});
         } else if (std::get_if<std::monostate>(&val)) {
             jiov.emplace_back(iovec{nullptr, 0});
-        } else if (auto p = std::get_if<ns>(&val)) {
+        } else if (auto p = std::get_if<std::vector<std::byte>>(&val)) {
+            jiov.emplace_back(
+                iovec{reinterpret_cast<void*>(p->data()), p->size()});
+        } else if (auto p = std::get_if<sharing>(&val)) {
             jiov.emplace_back(
                 iovec{reinterpret_cast<void*>(p), sizeof(uint32_t)});
         }

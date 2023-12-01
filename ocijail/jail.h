@@ -11,15 +11,19 @@
 namespace ocijail {
 
 struct jail {
-    enum ns : uint32_t {
-        DISABLED = 0,
+    enum sharing : uint32_t {
+        DISABLE = 0,
         NEW = 1,
         INHERIT = 2,
     };
 
     struct config {
-        using value =
-            std::variant<std::monostate, std::string, uint32_t, int32_t, ns>;
+        using value = std::variant<std::monostate,
+                                   std::string,
+                                   uint32_t,
+                                   int32_t,
+                                   sharing,
+                                   std::vector<std::byte>>;
         bool contains(const std::string& key) const {
             return params_.find(key) != params_.end();
         }
@@ -30,6 +34,10 @@ struct jail {
             set(key, std::monostate{}, loc);
         }
         value& at(const std::string& key) { return params_.at(key); }
+        template <typename T>
+        T get(const std::string& key) {
+            return std::get<T>(params_.at(key));
+        }
 
         std::map<std::string, value> params_;
     };
