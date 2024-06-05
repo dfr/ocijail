@@ -118,9 +118,9 @@ void create::run() {
     if (!config["ociVersion"].is_string()) {
         malformed_config("ociVersion must be a string");
     }
-    // Allow 1.0.x and 1.1.x
+    // Allow 1.0.x, 1.1.x and 1.2.x
     auto ver = parse_version(config["ociVersion"]);
-    if (ver.major != "1" || !(ver.minor == "0" || ver.minor == "1")) {
+    if (ver.major != "1" || !(ver.minor == "0" || ver.minor == "1" || ver.minor == "2")) {
         throw std::runtime_error{"create: unsupported OCI version " +
                                  std::string{config["ociVersion"]}};
     }
