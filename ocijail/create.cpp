@@ -374,8 +374,20 @@ void create::run() {
                 errno, std::system_category(), "read from create socket"};
         }
         if (status != 0) {
-            state["status"] = "stopped";
-            state.save();
+            // If the create failed, we need to clean up: unmount the volumes and
+            // delete the state.
+            j.remove();
+            if (config_mounts.is_array()) {
+                unmount_volumes(app_, state, root_path, config_mounts);
+            }
+            if (root_readonly) {
+                if (::unmount(root_path.c_str(), MNT_FORCE) > 0) {
+                    throw std::system_error{errno,
+                                            std::system_category(),
+                                            "unmounting " + root_path.native()};
+                }
+            }
+            state.remove_all();
         }
         ::exit(status);
     } else {
@@ -438,6 +450,11 @@ void create::run() {
         }
         ::close(create_sock[1]);
 
+        // If validate failed, don't wait for a start signal, just stop here.
+        if (status != 0) {
+            ::exit(status);
+        }
+
         // Finished coordinating with parent - now we wait until
         // signalled by start.
         n = ::read(start_wait_fd, &ch, 1);
@@ -446,11 +463,6 @@ void create::run() {
                 errno, std::system_category(), "read from start fifo"};
         }
         ::close(start_wait_fd);
-
-        // If validate failed, don't try to run hooks or execve, just stop here.
-        if (status != 0) {
-            ::exit(status);
-        }
 
         // Run startContainer hooks inside the jail.
         hook::run_hooks(app_, config_hooks, "startContainer", state);
