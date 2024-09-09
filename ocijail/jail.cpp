@@ -29,11 +29,12 @@ void jail::config::set(const std::string& key, const value& val) {
 }
 
 jail jail::create(config& jconf) {
-    auto jiov = get_iovec(jconf);
+    std::array<char, 1024> errbuf;
+    auto jiov = get_iovec(jconf, errbuf);
     int32_t jid = jail_set(&jiov[0], jiov.size(), JAIL_CREATE);
     if (jid < 0) {
         throw std::system_error{
-            errno, std::system_category(), "error calling jail_set"};
+            errno, std::system_category(), "error calling jail_set: " + get_errmsg(jiov)};
     }
     return jail{jid};
 }
@@ -41,11 +42,12 @@ jail jail::create(config& jconf) {
 jail jail::find(const std::string& name) {
     config jconf;
     jconf.set("name", name);
-    auto jiov = get_iovec(jconf);
+    std::array<char, 1024> errbuf;
+    auto jiov = get_iovec(jconf, errbuf);
     int32_t jid = jail_get(&jiov[0], jiov.size(), 0);
     if (jid < 0) {
         throw std::system_error{
-            errno, std::system_category(), "error calling jail_get"};
+            errno, std::system_category(), "error calling jail_get: " + get_errmsg(jiov)};
     }
     return jail{jid};
 }
@@ -68,19 +70,26 @@ void jail::remove() {
 }
 
 void jail::_get(config& jconf) {
-    auto jiov = get_iovec(jconf);
+    std::array<char, 1024> errbuf;
+    auto jiov = get_iovec(jconf, errbuf);
     if (jail_get(&jiov[0], jiov.size(), 0) < 0) {
         throw std::system_error{
-            errno, std::system_category(), "error calling jail_get"};
+            errno, std::system_category(), "error calling jail_get: " + get_errmsg(jiov)};
     }
 }
 
 void jail::_set(config& jconf) {
-    auto jiov = get_iovec(jconf);
+    std::array<char, 1024> errbuf;
+    auto jiov = get_iovec(jconf, errbuf);
     if (jail_set(&jiov[0], jiov.size(), JAIL_UPDATE) < 0) {
         throw std::system_error{
-            errno, std::system_category(), "error calling jail_set"};
+            errno, std::system_category(), "error calling jail_set: " + get_errmsg(jiov)};
     }
+}
+
+static iovec string_to_iovec(const char *s) {
+    return {reinterpret_cast<void*>(const_cast<char*>(s)),
+            strlen(s) + 1};
 }
 
 static iovec string_to_iovec(const std::string& s) {
@@ -88,9 +97,9 @@ static iovec string_to_iovec(const std::string& s) {
             s.size() + 1};
 }
 
-std::vector<iovec> jail::get_iovec(config& jconf) {
+std::vector<iovec> jail::get_iovec(config& jconf, std::array<char, 1024>& errbuf) {
     std::vector<iovec> jiov;
-    jiov.reserve(2 * jconf.params_.size());
+    jiov.reserve(2 * jconf.params_.size() + 2);
     for (auto& [key, val] : jconf.params_) {
         jiov.emplace_back(string_to_iovec(key));
         if (auto p = std::get_if<std::string>(&val)) {
@@ -108,6 +117,9 @@ std::vector<iovec> jail::get_iovec(config& jconf) {
                 iovec{reinterpret_cast<void*>(p), sizeof(uint32_t)});
         }
     }
+    jiov.emplace_back(string_to_iovec("errmsg"));
+    jiov.emplace_back(reinterpret_cast<void*>(errbuf.data()), errbuf.size());
+    
     return jiov;
 }
 

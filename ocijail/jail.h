@@ -1,7 +1,11 @@
 #pragma once
 
 #include <sys/uio.h>
+#include <array>
+#include <cstring>
 #include <map>
+#include <map>
+#include <variant>
 
 namespace ocijail {
 
@@ -58,7 +62,12 @@ struct jail {
     jail(int jid) : jid_(jid) {}
     void _get(config& jconf);
     void _set(config& jconf);
-    static std::vector<iovec> get_iovec(config& jconf);
+    static std::vector<iovec> get_iovec(config& jconf, std::array<char, 1024>& errbuf);
+    static std::string get_errmsg(const std::vector<iovec>& jiov) {
+        const auto& err = jiov.back();
+        auto msg = reinterpret_cast<const char*>(err.iov_base);
+        return std::string{msg, strnlen(msg, 1024)};
+    }
 
     int32_t jid_;
 };
