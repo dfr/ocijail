@@ -13,6 +13,8 @@ cc_binary(
         "delete.h",
         "exec.cpp",
         "exec.h",
+        "features.cpp",
+        "features.h",
         "hook.cpp",
         "hook.h",
         "jail.cpp",
