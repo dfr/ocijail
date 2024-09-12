@@ -366,7 +366,9 @@ static bool mount_volume(main_app& app,
         type = "nullfs";
     }
     bool is_file_mount =
-        type == "nullfs" && fs::is_regular_file(mount["source"]);
+        type == "nullfs" &&
+        mount.contains("source") &&
+        fs::is_regular_file(mount["source"]);
 
     // Validate mount options before we perform any actions
     std::vector<std::tuple<pseudo_option*, std::string>> pseudo_opts;
@@ -374,7 +376,7 @@ static bool mount_volume(main_app& app,
     int mount_flags = 0;
     mount_opts.emplace_back("fstype", type);
     mount_opts.emplace_back("fspath", destination);
-    if (type == "nullfs") {
+    if (type == "nullfs" && mount.contains("source")) {
         mount_opts.emplace_back("target", mount["source"]);
     }
     if (mount.contains("options")) {
@@ -458,7 +460,9 @@ static void unmount_volume(main_app& app,
 
     std::string type = mount.contains("type") ? mount["type"] : "nullfs";
     bool is_file_mount =
-        type == "nullfs" && fs::is_regular_file(mount["source"]);
+        type == "nullfs" &&
+        mount.contains("source") &&
+        fs::is_regular_file(mount["source"]);
 
     if (is_file_mount && !file_mount_supported) {
         // Restore the saved path if it exists
