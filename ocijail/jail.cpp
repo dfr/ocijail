@@ -2,6 +2,7 @@
 
 #include <sys/jail.h>
 #include <cassert>
+#include <format>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -10,20 +11,29 @@
 
 namespace ocijail {
 
-void jail::config::set(const std::string& key, const value& val) {
+template <typename T>
+void jail::config::check_value(const std::string& key, const value& val, const std::source_location& loc) {
+    if (!std::holds_alternative<T>(val)) {
+        throw std::runtime_error{std::format("jail::config::set: unexpected value type, called from: {}:{}", loc.file_name(), loc.line())};
+    }
+}
+
+void jail::config::set(const std::string& key, const value& val, const std::source_location& loc) {
     // Validate parameter types
     if (key == "jid" || key == "devfs_ruleset" || key == "enforce_statfs") {
-        assert(std::holds_alternative<uint32_t>(val));
+        check_value<uint32_t>(key, val, loc);
     } else if (key == "ip4" || key == "ip6") {
-        assert(std::holds_alternative<ns>(val));
+        check_value<ns>(key, val, loc);
     } else if (key == "host" || key == "vnet") {
-        assert(std::holds_alternative<ns>(val) &&
-               std::get<ns>(val) != DISABLED);
+        check_value<ns>(key, val, loc);
+        if (std::get<ns>(val) == DISABLED) {
+            throw std::runtime_error{std::format("jail::config::set: value cannot be DISABLE, called from: {}:{}", loc.file_name(), loc.line())};
+        }
     } else if (key == "persist" || key == "sysvmsg" || key == "sysvsem" ||
                key == "sysvshm" || key.starts_with("allow.")) {
-        assert(std::holds_alternative<std::monostate>(val));
+        check_value<std::monostate>(key, val, loc);
     } else {
-        assert(std::holds_alternative<std::string>(val));
+        check_value<std::string>(key, val, loc);
     }
     params_[key] = val;
 }

@@ -3,6 +3,7 @@
 #include <sys/uio.h>
 #include <array>
 #include <cstring>
+#include <source_location>
 #include <map>
 #include <map>
 #include <variant>
@@ -19,7 +20,15 @@ struct jail {
     struct config {
         using value =
             std::variant<std::monostate, std::string, uint32_t, int32_t, ns>;
-        void set(const std::string& key, const value& value = std::monostate{});
+        bool contains(const std::string& key) const {
+            return params_.find(key) != params_.end();
+        }
+        template <typename T>
+        void check_value(const std::string& key, const value& val, const std::source_location& loc);
+        void set(const std::string& key, const value& value, const std::source_location& loc = std::source_location::current());
+        void set(const std::string& key, const std::source_location& loc = std::source_location::current()) {
+            set(key, std::monostate{}, loc);
+        }
         value& at(const std::string& key) { return params_.at(key); }
 
         std::map<std::string, value> params_;
