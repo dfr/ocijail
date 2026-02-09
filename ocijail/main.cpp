@@ -120,6 +120,12 @@ json runtime_state::report() const {
     if (state_["config"].contains("annotations")) {
         res["annotations"] = state_["config"]["annotations"];
     }
+    if (state_.contains("jid")) {
+        if (!res.contains("annotations")) {
+            res["annotations"] = json::object();
+        }
+        res["annotations"]["org.freebsd.jail.jid"] = state_["jid"];
+    }
     return res;
 }
 
