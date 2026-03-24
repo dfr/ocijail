@@ -313,7 +313,43 @@ class test_create(unittest.TestCase):
         self._test_hooks_sub("startContainer")
         self._test_hooks_sub("poststart")
         self._test_hooks_sub("poststop")
-        
+
+    def test_allow_annotations(self):
+        # Known allow param with "true" is accepted
+        c = self.config()
+        c["annotations"] = {"org.freebsd.jail.allow.mlock": "true"}
+        self.check_good_config(c)
+
+        # Known allow param with "1" is also accepted
+        c["annotations"] = {"org.freebsd.jail.allow.mlock": "1"}
+        self.check_good_config(c)
+
+        # Multiple known params together
+        c["annotations"] = {
+            "org.freebsd.jail.allow.mlock": "true",
+            "org.freebsd.jail.allow.raw_sockets": "true",
+        }
+        self.check_good_config(c)
+
+        # Unknown allow param is silently ignored (not an error)
+        c["annotations"] = {"org.freebsd.jail.allow.nonexistent_param": "true"}
+        self.check_good_config(c)
+
+        # "false" value is silently ignored (not an error)
+        c["annotations"] = {"org.freebsd.jail.allow.mlock": "false"}
+        self.check_good_config(c)
+
+        # Non-string annotation value is silently ignored
+        c["annotations"] = {"org.freebsd.jail.allow.mlock": True}
+        self.check_good_config(c)
+
+        # Unrelated annotations are unaffected
+        c["annotations"] = {
+            "com.example.something": "value",
+            "org.freebsd.jail.allow.mlock": "true",
+        }
+        self.check_good_config(c)
+
 
 if __name__ == "__main__":
     unittest.main()
