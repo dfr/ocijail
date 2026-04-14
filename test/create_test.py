@@ -350,6 +350,22 @@ class test_create(unittest.TestCase):
         }
         self.check_good_config(c)
 
+    def test_ns_annotations(self):
+        c = self.config()
+
+        # Negative tests for vnet: only new/inherit accepted, reject unknown
+        # and normally valid namespace options (no and disable respctively)
+        c["annotations"] = {"org.freebsd.jail.vnet": "no"}
+        self.check_bad_config(c)
+        c["annotations"] = {"org.freebsd.jail.vnet": "disable"}
+        self.check_bad_config(c)
+
+        # Positive tests for vnet
+        c["annotations"] = {"org.freebsd.jail.vnet": "new"}
+        self.check_good_config(c)
+        c["annotations"] = {"org.freebsd.jail.vnet": "inherit"}
+        self.check_good_config(c)
+
 
 if __name__ == "__main__":
     unittest.main()
