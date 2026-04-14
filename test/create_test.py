@@ -366,6 +366,19 @@ class test_create(unittest.TestCase):
         c["annotations"] = {"org.freebsd.jail.vnet": "inherit"}
         self.check_good_config(c)
 
+        for param in ["sysvmsg", "sysvsem", "sysvshm"]:
+            name = "org.freebsd.jail." + param
+            c["annotations"] = {name: "no"}
+            self.check_bad_config(c)
+
+            # Positive tests for the others
+            c["annotations"] = {name: "disable"}
+            self.check_good_config(c)
+            c["annotations"] = {name: "new"}
+            self.check_good_config(c)
+            c["annotations"] = {name: "inherit"}
+            self.check_good_config(c)
+
 
 if __name__ == "__main__":
     unittest.main()
