@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "ocijail/create.h"
@@ -220,6 +221,10 @@ void create::run() {
     std::optional<std::string> ip4_addr;
     std::optional<std::string> ip6_addr;
     std::vector<std::string> allow_params;
+
+    std::unordered_map<std::string, std::optional<jail::ns>> known_ns_params = {
+        {"org.freebsd.jail.vnet", std::nullopt},
+    };
     if (config.contains("annotations")) {
         auto config_annotations = config["annotations"];
         if (config_annotations.contains("org.freebsd.parentJail")) {
@@ -227,17 +232,24 @@ void create::run() {
             auto pj = jail::find(*parent_jail);
             allow_chflags = pj.get<bool>("allow.chflags");
         }
-        if (config_annotations.contains("org.freebsd.jail.vnet")) {
-            std::string val = config_annotations["org.freebsd.jail.vnet"];
-            if (val == "new") {
-                vnet = jail::NEW;
-            } else if (val == "inherit") {
-                vnet = jail::INHERIT;
-            } else {
-                throw std::runtime_error(
-                    "bad value for org.freebsd.jail.vnet: " + val);
+
+        for (auto& [key, nsvalue] : known_ns_params) {
+            if (config_annotations.contains(key)) {
+                std::string val = config_annotations[key];
+                if (val == "new") {
+                    nsvalue = jail::NEW;
+                } else if (val == "inherit") {
+                    nsvalue = jail::INHERIT;
+                } else if (val == "disable") {
+                    nsvalue = jail::DISABLED;
+                } else {
+                    throw std::runtime_error(
+                        "bad value for " + key + ": " + val);
+                }
             }
         }
+
+        vnet = known_ns_params["org.freebsd.jail.vnet"].value_or(vnet);
         if (vnet == jail::INHERIT) {
             if (config_annotations.contains("org.freebsd.jail.ip4.addr")) {
                 ip4_addr = config_annotations["org.freebsd.jail.ip4.addr"];
@@ -247,6 +259,9 @@ void create::run() {
             } else if (config_annotations.contains("org.freebsd.jail.ip6.add")) {
                 ip6_addr = config_annotations["org.freebsd.jail.ip6.add"];
             }
+        } else if (vnet == jail::DISABLED) {
+            throw std::runtime_error(
+                "bad value for org.freebsd.jail.vnet: disable");
         }
 
         // Check for allow.* annotations (e.g., org.freebsd.jail.allow.mlock).
