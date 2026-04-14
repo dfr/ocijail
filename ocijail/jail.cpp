@@ -16,15 +16,15 @@ void jail::config::set(const std::string& key, const value& val) {
     // Validate parameter types
     if (key == "jid" || key == "devfs_ruleset" || key == "enforce_statfs") {
         assert(std::holds_alternative<uint32_t>(val));
-    } else if (key == "ip4" || key == "ip6") {
+    } else if (key == "ip4" || key == "ip6" || key == "sysvmsg" ||
+               key == "sysvsem" || key == "sysvshm") {
         assert(std::holds_alternative<ns>(val));
     } else if (key == "ip4.addr" || key == "ip6.addr") {
         assert(std::holds_alternative<std::vector<uint8_t>>(val));
     } else if (key == "host" || key == "vnet") {
         assert(std::holds_alternative<ns>(val) &&
                std::get<ns>(val) != DISABLED);
-    } else if (key == "persist" || key == "sysvmsg" || key == "sysvsem" ||
-               key == "sysvshm" || key.starts_with("allow.")) {
+    } else if (key == "persist" || key.starts_with("allow.")) {
         assert(std::holds_alternative<std::monostate>(val));
     } else {
         assert(std::holds_alternative<std::string>(val));
