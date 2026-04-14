@@ -224,6 +224,9 @@ void create::run() {
 
     std::unordered_map<std::string, std::optional<jail::ns>> known_ns_params = {
         {"org.freebsd.jail.vnet", std::nullopt},
+        {"org.freebsd.jail.sysvmsg", std::nullopt},
+        {"org.freebsd.jail.sysvsem", std::nullopt},
+        {"org.freebsd.jail.sysvshm", std::nullopt},
     };
     if (config.contains("annotations")) {
         auto config_annotations = config["annotations"];
@@ -310,6 +313,15 @@ void create::run() {
     jconf.set("allow.raw_sockets");
     if (allow_chflags) {
         jconf.set("allow.chflags");
+    }
+    if (known_ns_params["org.freebsd.jail.sysvmsg"]) {
+        jconf.set("sysvmsg", *known_ns_params["org.freebsd.jail.sysvmsg"]);
+    }
+    if (known_ns_params["org.freebsd.jail.sysvsem"]) {
+        jconf.set("sysvsem", *known_ns_params["org.freebsd.jail.sysvsem"]);
+    }
+    if (known_ns_params["org.freebsd.jail.sysvshm"]) {
+        jconf.set("sysvshm", *known_ns_params["org.freebsd.jail.sysvshm"]);
     }
     for (const auto& param : allow_params) {
         jconf.set(param);
