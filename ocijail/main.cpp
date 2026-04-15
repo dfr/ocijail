@@ -124,7 +124,7 @@ json runtime_state::report() const {
         if (!res.contains("annotations")) {
             res["annotations"] = json::object();
         }
-        res["annotations"]["org.freebsd.jail.jid"] = state_["jid"];
+        res["annotations"]["org.freebsd.jail.jid"] = std::to_string(int(state_["jid"]));
     }
     return res;
 }
