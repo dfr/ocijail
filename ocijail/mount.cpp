@@ -437,6 +437,15 @@ retry:
             }
             std::stringstream ss;
             ss << mount;
+            if (errno == ENOENT) {
+                auto source = mount["source"].get<std::string>();
+                if (!fs::exists(source)) {
+                    throw std::runtime_error(
+                        "mounting " + ss.str() +
+                        ": source path does not exist: " + source +
+                        " (create the directory first)");
+                }
+            }
             throw std::system_error(
                 errno, std::system_category(), "mounting " + ss.str());
         }
