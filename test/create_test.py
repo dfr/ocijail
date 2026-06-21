@@ -66,6 +66,8 @@ class test_create(unittest.TestCase):
         c["ociVersion"] = "1.2.0"
         self.check_good_config(c)
         c["ociVersion"] = "1.3.0"
+        self.check_good_config(c)
+        c["ociVersion"] = "1.4.0"
         self.check_bad_config(c)
 
     def test_process(self):
