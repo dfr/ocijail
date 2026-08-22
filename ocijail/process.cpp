@@ -67,8 +67,10 @@ process::process(const json& process_json,
                 malformed_config("process.user.gid must be a number");
             }
             gid_ = user["gid"];
-            if (user.contains("umask") && !user["umask"].is_number()) {
-                malformed_config("process.user.umask must be a number");
+            if (user.contains("umask")) {
+                if (!user["umask"].is_number()) {
+                    malformed_config("process.user.umask must be a number");
+                }
                 umask_ = user["umask"];
             }
             gids_.push_back(gid_);
