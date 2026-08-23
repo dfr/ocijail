@@ -1,9 +1,15 @@
 #include <err.h>
 #include <signal.h>
+#include <sys/param.h>
+#include <sys/queue.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
 #include <unistd.h>
 #include <filesystem>
 #include <sstream>
+#include <libprocstat.h>
 
 #include "ocijail/process.h"
 #include "ocijail/tty.h"
@@ -15,6 +21,25 @@ extern "C" char** environ;
 using nlohmann::json;
 
 namespace ocijail {
+
+static unsigned short get_my_umask() {
+    struct procstat *ps = NULL;
+    ps = procstat_open_sysctl();
+    if (ps == NULL)
+        throw std::runtime_error("procstat_open_sysctl failed");
+    unsigned int count;
+    unsigned short umask = 0xffff;
+    struct kinfo_proc *procs = procstat_getprocs(ps, KERN_PROC_PID, getpid(), &count);
+    if (procs != NULL) {
+        if (count > 0)
+            procstat_getumask(ps, &procs[0], &umask);
+        procstat_freeprocs(ps, procs);
+    }
+    procstat_close(ps);
+    if (umask == 0xffff)
+        throw std::runtime_error("looking up umask failed");
+    return umask;
+}
 
 process::process(const json& process_json,
                  std::optional<std::filesystem::path> console_socket,
@@ -70,6 +95,8 @@ process::process(const json& process_json,
             if (user.contains("umask") && !user["umask"].is_number()) {
                 malformed_config("process.user.umask must be a number");
                 umask_ = user["umask"];
+            } else {
+                umask_ = get_my_umask();
             }
             gids_.push_back(gid_);
             if (user.contains("additionalGids")) {
@@ -91,6 +118,7 @@ process::process(const json& process_json,
     } else {
         uid_ = 0;
         gid_ = 0;
+        umask_ = get_my_umask();
         gids_.push_back(0);
     }
 

@@ -5,6 +5,7 @@ cc_binary(
     ],
     linkopts = [
         "-lm",
+        "-lprocstat"
     ],
     srcs = [
         "create.cpp",

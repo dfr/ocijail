@@ -43,7 +43,7 @@ struct process {
     std::vector<gid_t> gids_;
     uid_t uid_;
     gid_t gid_;
-    mode_t umask_{077};
+    mode_t umask_;
     bool terminal_{false};
 };
 
