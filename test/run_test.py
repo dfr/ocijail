@@ -166,6 +166,28 @@ class test_run(unittest.TestCase):
             with open(os.path.join(root_dir, "file"), "r") as f:
                 self.assertEqual(f.read(), "Hello World\n")
 
+    def test_process_user_umask(self):
+        c = self.config()
+        # If process.user.umask is set, this should be the value of umask inside
+        # the container
+        c["process"]["user"] = {"uid": 0, "gid": 0}
+        c["process"]["user"]["umask"] = 0o022
+        c["process"]["args"] = ["umask"]
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out.strip(), "0022")
+
+    def test_propagate_umask(self):
+        c = self.config()
+        # If process.user.umask is not set, the caller's umask should be
+        # propagated to the container
+        old_umask = os.umask(0o011)
+        c["process"]["args"] = ["umask"]
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out.strip(), "0011")
+        os.umask(old_umask)
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()

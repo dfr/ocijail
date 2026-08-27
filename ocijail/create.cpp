@@ -468,7 +468,6 @@ void create::run() {
     // We record the container state including the bundle config. We
     // need to create the start fifo before forking - this will be
     // used to pause the container until start is called.
-    umask(077);
     auto start_wait = state.get_state_dir() / "start_wait";
     if (mkfifo(start_wait.c_str(), 0600) < 0) {
         throw std::system_error{
