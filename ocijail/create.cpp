@@ -301,12 +301,57 @@ void create::run() {
         }
     }
 
+    // Determine jail name: org.freebsd.jail.name takes priority (explicit
+    // ocijail-specific override), falling back to podman's
+    // container-name annotation (set automatically from `podman run
+    // --name`/auto-generated name), then the container id if neither is
+    // usable. A requested name is rejected -- falling back to the next
+    // candidate -- if it's empty or contains '.', since jail names are
+    // dot-separated for nesting and an embedded '.' would be read as
+    // extra nesting levels.
+    auto valid_jail_name = [&](const std::string& requested,
+                                const char* source) -> bool {
+        if (requested.empty()) {
+            app_.log() << "warning: " << source
+                       << " is empty, trying next candidate";
+            return false;
+        }
+        if (requested.find('.') != std::string::npos) {
+            app_.log() << "warning: " << source << " '" << requested
+                       << "' contains '.', which conflicts with jail "
+                          "nesting name syntax; trying next candidate";
+            return false;
+        }
+        return true;
+    };
+
+    std::string jail_name_str = id_;
+    if (config.contains("annotations") && config["annotations"].is_object()) {
+        auto config_annotations = config["annotations"];
+        if (config_annotations.contains("org.freebsd.jail.name") &&
+            config_annotations["org.freebsd.jail.name"].is_string() &&
+            valid_jail_name(config_annotations["org.freebsd.jail.name"],
+                             "org.freebsd.jail.name")) {
+            jail_name_str = config_annotations["org.freebsd.jail.name"];
+        } else if (config_annotations.contains(
+                       "io.podman.annotations.container-name") &&
+                   config_annotations["io.podman.annotations.container-name"]
+                       .is_string() &&
+                   valid_jail_name(
+                       config_annotations
+                           ["io.podman.annotations.container-name"],
+                       "io.podman.annotations.container-name")) {
+            jail_name_str =
+                config_annotations["io.podman.annotations.container-name"];
+        }
+    }
+
     // Create a jail config from the OCI config
     jail::config jconf;
     if (parent_jail) {
-        jconf.set("name", *parent_jail + "." + id_);
+        jconf.set("name", *parent_jail + "." + jail_name_str);
     } else {
-        jconf.set("name", id_);
+        jconf.set("name", jail_name_str);
     }
     jconf.set("persist");
     jconf.set("enforce_statfs", 1u);
