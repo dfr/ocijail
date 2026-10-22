@@ -17,7 +17,7 @@ struct kill {
     std::string id_;
     std::optional<std::string> signame_;
     std::optional<int> pid_;
-    bool all_;
+    bool all_{false};
 };
 
 }  // namespace ocijail
