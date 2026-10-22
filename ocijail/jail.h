@@ -1,11 +1,13 @@
 #pragma once
 
+#include <sys/types.h>
 #include <sys/uio.h>
 #include <array>
 #include <cstring>
 #include <map>
 #include <map>
 #include <variant>
+#include <vector>
 
 namespace ocijail {
 
@@ -32,6 +34,9 @@ struct jail {
     auto jid() const { return jid_; }
 
     void attach();
+
+    // Return the pids of all processes running in the jail
+    std::vector<pid_t> processes() const;
 
     void remove();
 

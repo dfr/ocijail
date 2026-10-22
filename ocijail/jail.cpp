@@ -1,6 +1,8 @@
 #include <sys/param.h>
 
 #include <sys/jail.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
 #include <cassert>
 #include <iomanip>
 #include <string>
@@ -61,6 +63,38 @@ void jail::attach() {
         throw std::system_error{
             errno, std::system_category(), "error calling jail_attach"};
     }
+}
+
+std::vector<pid_t> jail::processes() const {
+    int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC};
+    std::vector<struct kinfo_proc> procs;
+    for (;;) {
+        size_t len = 0;
+        if (::sysctl(mib, 3, nullptr, &len, nullptr, 0) < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error listing processes"};
+        }
+        // Leave some headroom in case processes are created between
+        // the two calls.
+        len += len / 8;
+        procs.resize(len / sizeof(struct kinfo_proc));
+        if (::sysctl(mib, 3, procs.data(), &len, nullptr, 0) == 0) {
+            procs.resize(len / sizeof(struct kinfo_proc));
+            break;
+        }
+        if (errno != ENOMEM) {
+            throw std::system_error{
+                errno, std::system_category(), "error listing processes"};
+        }
+    }
+
+    std::vector<pid_t> pids;
+    for (const auto& kp : procs) {
+        if (kp.ki_jid == jid_) {
+            pids.push_back(kp.ki_pid);
+        }
+    }
+    return pids;
 }
 
 void jail::remove() {

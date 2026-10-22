@@ -7,10 +7,12 @@ import os
 import os.path
 import secrets
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 cmd = "ocijail/ocijail"
@@ -481,6 +483,61 @@ class test_run(unittest.TestCase):
             os.symlink("somelink", os.path.join(root_dir, "var/run"))
             os.symlink("somelink", os.path.join(root_dir, "var/somelink"))
         self.symlink_test_helper(setup, "/var/run/foo", "/var/somedir/foo", expected_ret=1)
+
+    def jail_pids(self):
+        args = [cmd, "state", self.container_id]
+        ret = subprocess.run(args=args, capture_output=True, check=True)
+        jid = json.loads(ret.stdout)["annotations"]["org.freebsd.jail.jid"]
+        # Ignore zombies - we are the reaper for orphaned container
+        # processes and they will stay in the jail until reaped.
+        ret = subprocess.run(
+            args=["ps", "-x", "-J", jid, "-o", "pid=", "-o", "state="],
+            capture_output=True)
+        pids = set()
+        for line in ret.stdout.decode("utf-8").splitlines():
+            pid, state = line.split()
+            if not state.startswith("Z"):
+                pids.add(int(pid))
+        return pids
+
+    def wait_for_jail_pids(self, count):
+        for _ in range(100):
+            pids = self.jail_pids()
+            if len(pids) == count:
+                return pids
+            time.sleep(0.1)
+        self.fail(f"expected {count} processes in jail, found {pids}")
+
+    def kill_helper(self, all):
+        # The container process starts two children which stay in the
+        # jail if only the container process is signalled.
+        c = self.config()
+        c["process"]["args"] = [
+            "sh", "-c", "sleep 1000 & sleep 1000 & wait"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            stdout.close()
+            stderr.close()
+            self.start()
+            self.wait_for_jail_pids(3)
+            args = [cmd, "kill"]
+            if all:
+                args.append("--all")
+            args += [self.container_id, "TERM"]
+            ret = subprocess.run(args=args)
+            self.assertEqual(ret.returncode, 0)
+            _, status = os.waitpid(pid, os.WEXITED)
+            self.assertEqual(status & 0x7f, signal.SIGTERM)
+
+    def test_kill(self):
+        self.kill_helper(False)
+        self.assertEqual(len(self.jail_pids()), 2)
+
+    def test_kill_all(self):
+        self.kill_helper(True)
+        self.wait_for_jail_pids(0)
 
 if __name__ == "__main__":
     if os.getenv("OCIJAIL_PATH"):

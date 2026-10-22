@@ -1,9 +1,11 @@
 #include <signal.h>
 #include <charconv>
 #include <iostream>
+#include <set>
 
 #include "nlohmann/json.hpp"
 
+#include "jail.h"
 #include "kill.h"
 
 namespace fs = std::filesystem;
@@ -60,6 +62,33 @@ void kill::run() {
     auto state = app_.get_runtime_state(id_);
     auto lk = state.lock();
     state.load();
+
+    if (all_) {
+        // Signal every process in the container's jail, not just the
+        // container process. This works in any state since processes may
+        // outlive the container process. Keep sweeping until we see no
+        // new processes so that children forked while we were signalling
+        // are not missed.
+        auto j = jail::find(int(state["jid"]));
+        std::set<pid_t> signalled;
+        bool found = true;
+        while (found) {
+            found = false;
+            for (auto pid : j.processes()) {
+                if (!signalled.insert(pid).second) {
+                    continue;
+                }
+                found = true;
+                if (::kill(pid, signum) < 0 && errno != ESRCH) {
+                    throw std::system_error(
+                        errno,
+                        std::system_category(),
+                        "sending signal to pid " + std::to_string(pid));
+                }
+            }
+        }
+        return;
+    }
 
     if (state["status"] == "created" || state["status"] == "running") {
         if (::kill(state["pid"], signum) < 0 && errno != ESRCH) {
