@@ -15,9 +15,11 @@ enum class log_format {
     JSON,
 };
 
+// Ordered from least to most verbose.
 enum class log_level {
-    INFO,
+    ERROR,
     WARN,
+    INFO,
     DEBUG,
 };
 
@@ -95,10 +97,11 @@ class main_app : public CLI::App {
     auto get_test_mode() const { return test_mode_; }
     auto get_log_level() const { return log_level_; }
     log_entry log() { return log_entry{*this, log_level::INFO}; }
+    log_entry log_warn() { return log_entry{*this, log_level::WARN}; }
     log_entry log_debug() { return log_entry{*this, log_level::DEBUG}; }
     void log_error(const std::system_error& e);
     void log_error(const std::exception& e);
-    void log_message(const std::string& msg);
+    void log_message(log_level level, const std::string& msg);
 
    private:
     std::filesystem::path state_db_{"/var/run/ocijail"};
