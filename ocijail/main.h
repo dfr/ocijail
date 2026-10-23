@@ -10,6 +10,10 @@
 
 namespace ocijail {
 
+// The version of the runtime spec that we implement. This is reported by
+// state and features and is the highest version that create accepts.
+inline constexpr const char* oci_version = "1.3.0";
+
 enum class log_format {
     TEXT,
     JSON,
