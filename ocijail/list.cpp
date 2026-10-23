@@ -23,7 +23,7 @@ list::list(main_app& app) : app_(app) {
     };
 
     auto sub = app.add_subcommand("list", "List containers");
-    sub->add_option("--quiet,-q", quiet_, "show only IDs");
+    sub->add_flag("--quiet,-q", quiet_, "show only IDs");
     sub->add_option("--format,-f",
                     format_,
                     "output format: either table or json (default: table)")
@@ -52,7 +52,11 @@ void list::run() {
         }
     }
 
-    if (format_ == list_format::LIST_TABLE) {
+    if (quiet_) {
+        for (const auto& [id, state] : states) {
+            std::cout << id << "\n";
+        }
+    } else if (format_ == list_format::LIST_TABLE) {
         std::cout << std::left << std::setw(max_id_width) << "ID"
                   << " " << std::setw(10) << "PID"
                   << " " << std::setw(8) << "STATUS"

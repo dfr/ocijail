@@ -154,6 +154,34 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out, "Hello World\r\n")
 
+    def test_list_quiet(self):
+        # Use a private state root so that only our container is listed.
+        with tempfile.TemporaryDirectory() as state_root, \
+             tempfile.TemporaryDirectory() as bundle_dir:
+            c = self.config()
+            c["process"]["args"] = ["true"]
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            root_args = [cmd, "--root", state_root]
+            subprocess.run(
+                args=root_args + [
+                    "create", "--bundle", bundle_dir, self.container_id],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                check=True)
+            try:
+                for format_args in [[], ["--format", "json"]]:
+                    ret = subprocess.run(
+                        args=root_args + ["list", "-q"] + format_args,
+                        capture_output=True,
+                        check=True)
+                    self.assertEqual(
+                        ret.stdout.decode("utf-8"), f"{self.container_id}\n")
+            finally:
+                subprocess.run(
+                    args=root_args + ["delete", self.container_id],
+                    check=True)
+
     def test_chroot(self):
         with tempfile.TemporaryDirectory() as root_dir:
             shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
