@@ -85,11 +85,7 @@ void delete_::run() {
         unmount_volumes(app_, state, root_path, state["config"]["mounts"]);
     }
     if (root_readonly) {
-        if (::unmount(root_path.c_str(), MNT_FORCE) > 0) {
-            throw std::system_error{errno,
-                                    std::system_category(),
-                                    "unmounting " + root_path.native()};
-        }
+        unmount_root(app_, root_path);
     }
 
     hook::run_hooks(app_, state["config"]["hooks"], "poststop", state);

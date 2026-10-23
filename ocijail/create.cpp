@@ -513,11 +513,7 @@ void create::run() {
                 unmount_volumes(app_, state, root_path, config_mounts);
             }
             if (root_readonly) {
-                if (::unmount(root_path.c_str(), MNT_FORCE) > 0) {
-                    throw std::system_error{errno,
-                                            std::system_category(),
-                                            "unmounting " + root_path.native()};
-                }
+                unmount_root(app_, root_path);
             }
             state.remove_all();
         }

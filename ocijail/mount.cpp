@@ -607,4 +607,19 @@ void unmount_volumes(main_app& app,
     }
 }
 
+void unmount_root(main_app& app, const fs::path& root_path) {
+    if (::unmount(root_path.c_str(), MNT_FORCE) < 0) {
+        // As with volumes, EINVAL means that there is no mount registered on
+        // this path, normally because it is already gone. Carry on so that
+        // the container can still be deleted.
+        if (errno == EINVAL) {
+            app.log() << "unmounting " << root_path
+                      << ": not a known mount point";
+            return;
+        }
+        throw std::system_error{
+            errno, std::system_category(), "unmounting " + root_path.native()};
+    }
+}
+
 }  // namespace ocijail

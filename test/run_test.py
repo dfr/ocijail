@@ -397,6 +397,36 @@ class test_run(unittest.TestCase):
             # before we delete root_dir
             self.delete()
 
+    def test_readonly_root_unmount_busy(self):
+        # If the read-only alias of the root cannot be unmounted, delete
+        # should fail and leave the container in place so that it can be
+        # retried.
+        with tempfile.TemporaryDirectory() as root_dir, \
+             tempfile.TemporaryDirectory() as busy_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["root"]["readonly"] = True
+            c["process"]["args"] = ["sh", "-c", "exit 0"]
+            c["process"]["env"] = ["PATH=/rescue"]
+            ret, _, _ = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            # Keep the alias busy by using it as the lower layer of another
+            # nullfs mount.
+            alias = os.path.join(
+                "/var/run/ocijail", self.container_id, "readonly_root")
+            subprocess.run(
+                args=["mount", "-t", "nullfs", alias, busy_dir], check=True)
+            try:
+                ret = subprocess.run(
+                    args=[cmd, "delete", self.container_id],
+                    capture_output=True)
+                self.assertNotEqual(ret.returncode, 0)
+                self.assertIn("unmounting", ret.stderr.decode("utf-8"))
+            finally:
+                subprocess.run(args=["umount", busy_dir], check=True)
+            self.delete()
+
     # setup is a function which is called to initialise the root, destination is
     # the path inside the root for our mount and real_destination is the path
     # inside the root after resolving symlinks
