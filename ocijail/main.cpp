@@ -196,13 +196,13 @@ main_app::main_app(const std::string& title) : CLI::App(title) {
 }
 
 static std::string log_timestamp() {
-    struct ::timeval tv;
+    struct ::timespec ts;
     struct std::tm now;
-    gettimeofday(&tv, nullptr);
-    gmtime_r(&tv.tv_sec, &now);
+    clock_gettime(CLOCK_REALTIME, &ts);
+    gmtime_r(&ts.tv_sec, &now);
     std::stringstream ss;
     ss << std::put_time(&now, "%Y-%m-%dT%H:%M:%S");
-    ss << std::setw(9) << std::setfill('0') << tv.tv_usec << "Z";
+    ss << "." << std::setw(9) << std::setfill('0') << ts.tv_nsec << "Z";
     return ss.str();
 }
 

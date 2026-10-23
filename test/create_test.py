@@ -1,8 +1,10 @@
 #! /usr/bin/env python
 
+import datetime
 import json
 import os
 import os.path
+import re
 import socket
 import subprocess
 import tempfile
@@ -300,6 +302,33 @@ class test_create(unittest.TestCase):
             }
         ]}
         self.check_good_config(c)
+
+    def test_log_timestamp(self):
+        c = self.config()
+        del c["ociVersion"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            log_file = os.path.join(bundle_dir, "log.json")
+            before = datetime.datetime.now(datetime.timezone.utc)
+            subprocess.run(args=[
+                "ocijail/ocijail", "--testing=validation",
+                "--log-format=json", "--log", log_file,
+                "create", "--bundle", bundle_dir, "my_id",
+            ], stderr=subprocess.DEVNULL)
+            after = datetime.datetime.now(datetime.timezone.utc)
+            with open(log_file) as f:
+                entry = json.loads(f.readline())
+
+        # The timestamp is RFC 3339 in UTC with nanoseconds
+        m = re.fullmatch(
+            r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{9})Z", entry["time"])
+        self.assertIsNotNone(m, entry["time"])
+        t = datetime.datetime.fromisoformat(m.group(1)).replace(
+            tzinfo=datetime.timezone.utc)
+        t += datetime.timedelta(microseconds=int(m.group(2)) // 1000)
+        self.assertLessEqual(before - datetime.timedelta(seconds=1), t)
+        self.assertLessEqual(t, after + datetime.timedelta(seconds=1))
 
     def test_hooks(self):
         # if present, hooks must be an object
