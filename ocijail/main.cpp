@@ -106,7 +106,7 @@ void runtime_state::save() {
 
 json runtime_state::report() const {
     json res;
-    res["ociVersion"] = "1.0.2";
+    res["ociVersion"] = oci_version;
     res["id"] = id_;
     res["status"] = state_["status"];
     if (state_["status"] != "stopped") {

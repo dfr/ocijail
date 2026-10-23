@@ -209,6 +209,27 @@ class test_run(unittest.TestCase):
             ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 99)
 
+    def test_state_oci_version(self):
+        # state and features should agree on the runtime spec version
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            c = self.config()
+            c["process"]["args"] = ["true"]
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            _, stdout, stderr = self.create(bundle_dir)
+            stdout.close()
+            stderr.close()
+            state = json.loads(subprocess.run(
+                args=[cmd, "state", self.container_id],
+                capture_output=True,
+                check=True).stdout)
+            features = json.loads(subprocess.run(
+                args=[cmd, "features"],
+                capture_output=True,
+                check=True).stdout)
+            self.assertEqual(state["ociVersion"], "1.3.0")
+            self.assertEqual(features["ociVersionMax"], "1.3.0")
+
     def test_hook_prestart(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
