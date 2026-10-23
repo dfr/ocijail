@@ -177,6 +177,7 @@ main_app::main_app(const std::string& title) : CLI::App(title) {
     add_option("--log-format", log_format_, "Log format")
         ->transform(CLI::CheckedTransformer(log_formats, CLI::ignore_case));
     std::map<std::string, log_level> log_levels{
+        {"error", log_level::ERROR},
         {"info", log_level::INFO},
         {"warn", log_level::WARN},
         {"debug", log_level::DEBUG},
@@ -208,15 +209,29 @@ static std::string log_timestamp() {
 
 log_entry::~log_entry() {
     if (level_ <= app_.get_log_level()) {
-        app_.log_message(ss_.str());
+        app_.log_message(level_, ss_.str());
     }
 }
 
 void main_app::log_error(const std::exception& e) {
-    log_message(e.what());
+    log_message(log_level::ERROR, e.what());
 }
 
-void main_app::log_message(const std::string& msg) {
+static const char* log_level_name(log_level level) {
+    switch (level) {
+    case log_level::ERROR:
+        return "error";
+    case log_level::WARN:
+        return "warning";
+    case log_level::INFO:
+        return "info";
+    case log_level::DEBUG:
+        return "debug";
+    }
+    return "unknown";
+}
+
+void main_app::log_message(log_level level, const std::string& msg) {
     std::stringstream ss;
     switch (log_format_) {
     case log_format::TEXT:
@@ -225,7 +240,7 @@ void main_app::log_message(const std::string& msg) {
     case log_format::JSON: {
         json err;
         err["msg"] = msg;
-        err["level"] = "error";
+        err["level"] = log_level_name(level);
         err["time"] = log_timestamp();
         ss << err << "\n";
         break;
@@ -236,7 +251,10 @@ void main_app::log_message(const std::string& msg) {
 
     if (log_fd_ != 2) {
         // Copy to stderr
-        std::cerr << "Error: " << msg << "\n";
+        if (level == log_level::ERROR) {
+            std::cerr << "Error: ";
+        }
+        std::cerr << msg << "\n";
     }
 }
 

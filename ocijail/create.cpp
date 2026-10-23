@@ -292,8 +292,9 @@ void create::run() {
                 std::string param = "allow." + key.substr(allow_prefix.size());
                 std::string val = value;
                 if (!known_allow_params.count(param)) {
-                    app_.log() << "warning: unknown jail allow annotation '"
-                               << key << "', ignoring";
+                    app_.log_warn()
+                        << "warning: unknown jail allow annotation '" << key
+                        << "', ignoring";
                 } else if (val == "true" || val == "1") {
                     allow_params.push_back(param);
                 }

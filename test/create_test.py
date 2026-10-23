@@ -316,6 +316,35 @@ class test_create(unittest.TestCase):
         self._test_hooks_sub("poststart")
         self._test_hooks_sub("poststop")
 
+    def test_log_levels(self):
+        def run(c, *args):
+            with tempfile.TemporaryDirectory() as bundle_dir:
+                with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                    json.dump(c, f)
+                log_file = os.path.join(bundle_dir, "log.json")
+                subprocess.run(args=[
+                    "ocijail/ocijail", "--testing=validation",
+                    "--log-format=json", "--log", log_file, *args,
+                    "create", "--bundle", bundle_dir, "my_id",
+                ], stderr=subprocess.DEVNULL)
+                if not os.path.exists(log_file):
+                    return []
+                with open(log_file) as f:
+                    return [json.loads(line)["level"] for line in f]
+
+        # Errors are logged with level "error"
+        c = self.config()
+        del c["ociVersion"]
+        self.assertEqual(run(c), ["error"])
+
+        # Warnings are logged with level "warning" at the default log level
+        # but not at --log-level=error, which is accepted as in runc and crun
+        c = self.config()
+        c["annotations"] = {"org.freebsd.jail.allow.nonexistent_param": "true"}
+        self.assertEqual(run(c), ["warning"])
+        self.assertEqual(run(c, "--log-level=warn"), ["warning"])
+        self.assertEqual(run(c, "--log-level=error"), [])
+
     def test_allow_annotations(self):
         # Known allow param with "true" is accepted
         c = self.config()
