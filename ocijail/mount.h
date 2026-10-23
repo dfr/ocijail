@@ -28,4 +28,7 @@ void unmount_volumes(main_app& app,
                      const nlohmann::json& mounts,
                      std::optional<std::size_t> mounted = std::nullopt);
 
+// Unmount the read-only alias of the container root at "root_path".
+void unmount_root(main_app& app, const std::filesystem::path& root_path);
+
 }  // namespace ocijail
