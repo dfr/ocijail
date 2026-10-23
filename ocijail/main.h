@@ -111,4 +111,9 @@ class main_app : public CLI::App {
 
 void malformed_config(std::string_view message);
 
+// Return the start time of the given process in microseconds since the
+// epoch, or std::nullopt if there is no such process. This is used together
+// with the pid to identify the container process, since pids can be reused.
+std::optional<int64_t> process_start_time(pid_t pid);
+
 }  // namespace ocijail

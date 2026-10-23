@@ -482,6 +482,9 @@ void create::run() {
         }
         state["jid"] = j.jid();
         state["pid"] = pid;
+        if (auto start_time = process_start_time(pid)) {
+            state["pid_start_time"] = *start_time;
+        }
         state.save();
 
         hook::run_hooks(app_, config_hooks, "createRuntime", state);
