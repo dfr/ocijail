@@ -1,6 +1,8 @@
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/sysctl.h>
 #include <sys/time.h>
+#include <sys/user.h>
 #include <unistd.h>
 #include <ctime>
 #include <iomanip>
@@ -142,9 +144,30 @@ runtime_state::locked_state runtime_state::lock() {
     return {true, fd};
 }
 
+std::optional<int64_t> process_start_time(pid_t pid) {
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+    struct kinfo_proc kp;
+    size_t len = sizeof(kp);
+    if (::sysctl(mib, 4, &kp, &len, nullptr, 0) < 0) {
+        if (errno == ESRCH) {
+            return std::nullopt;
+        }
+        throw std::system_error(
+            errno, std::system_category(), "reading process info");
+    }
+    if (len == 0) {
+        return std::nullopt;
+    }
+    return int64_t(kp.ki_start.tv_sec) * 1000000 + kp.ki_start.tv_usec;
+}
+
 void runtime_state::check_status() {
     if (state_["status"] == "created" || state_["status"] == "running") {
-        if (::kill(state_["pid"], 0) < 0 && errno == ESRCH) {
+        // If the process has exited, its pid may have been reused by some
+        // unrelated process so compare start times as well, if known.
+        auto start_time = process_start_time(state_["pid"]);
+        if (!start_time || (state_.contains("pid_start_time") &&
+                            *start_time != state_["pid_start_time"])) {
             state_["status"] = "stopped";
             save();
         }

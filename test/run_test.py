@@ -209,6 +209,37 @@ class test_run(unittest.TestCase):
             ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 99)
 
+    def test_stopped_pid_reuse(self):
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "exit 0"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            stdout.close()
+            stderr.close()
+            os.kill(pid, 9)
+            os.waitpid(pid, os.WEXITED)
+
+            # Simulate the container's pid being reused by an unrelated
+            # process.
+            with subprocess.Popen(["sleep", "60"]) as decoy:
+                try:
+                    state_json = os.path.join(
+                        "/var/run/ocijail", self.container_id, "state.json")
+                    with open(state_json) as f:
+                        state = json.load(f)
+                    state["pid"] = decoy.pid
+                    with open(state_json, "w") as f:
+                        json.dump(state, f)
+                    ret = subprocess.run(
+                        args=[cmd, "state", self.container_id],
+                        capture_output=True)
+                    self.assertEqual(ret.returncode, 0)
+                    self.assertEqual(json.loads(ret.stdout)["status"], "stopped")
+                finally:
+                    decoy.kill()
+
     def test_hook_prestart(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
