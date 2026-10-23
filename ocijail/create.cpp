@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <charconv>
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
@@ -25,9 +26,9 @@ using nlohmann::json;
 namespace {
 
 struct oci_version {
-    std::string major;
-    std::string minor;
-    std::string patch;
+    int major;
+    int minor;
+    int patch;
 };
 
 oci_version parse_version(std::string ociver) {
@@ -56,8 +57,20 @@ oci_version parse_version(std::string ociver) {
     if (parts.size() != 3) {
         throw std::runtime_error("malformed ociVersion " + std::string(ociver));
     }
-    return oci_version{
-        std::string{parts[0]}, std::string{parts[1]}, std::string{parts[2]}};
+    // Each part must be a decimal number so that we can compare them
+    // numerically, e.g. 1.10.0 is greater than 1.3.0.
+    int nums[3];
+    for (int j = 0; j < 3; j++) {
+        auto part = parts[j];
+        auto [ptr, ec] =
+            std::from_chars(part.data(), part.data() + part.size(), nums[j]);
+        if (part.empty() || ec != std::errc{} ||
+            ptr != part.data() + part.size()) {
+            throw std::runtime_error("malformed ociVersion " +
+                                     std::string(ociver));
+        }
+    }
+    return oci_version{nums[0], nums[1], nums[2]};
 }
 
 }  // namespace
@@ -124,7 +137,7 @@ void create::run() {
     }
     // Allow 1.0.x, 1.1.x, 1.2.x and 1.3.x
     auto ver = parse_version(config["ociVersion"]);
-    if (ver.major != "1" || ver.minor > "3") {
+    if (ver.major != 1 || ver.minor > 3) {
         throw std::runtime_error{"create: unsupported OCI version " +
                                  std::string{config["ociVersion"]}};
     }
