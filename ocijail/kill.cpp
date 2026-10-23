@@ -1,4 +1,8 @@
+#include <sys/param.h>
+
 #include <signal.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
 #include <charconv>
 #include <iostream>
 
@@ -60,6 +64,25 @@ void kill::run() {
     auto state = app_.get_runtime_state(id_);
     auto lk = state.lock();
     state.load();
+
+    if (pid_) {
+        // Only signal the given process if it is in the container's jail.
+        int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, *pid_};
+        struct kinfo_proc kp;
+        size_t len = sizeof(kp);
+        if (::sysctl(mib, 4, &kp, &len, nullptr, 0) < 0 || len == 0 ||
+            kp.ki_jid != int(state["jid"])) {
+            throw std::runtime_error("process " + std::to_string(*pid_) +
+                                     " is not in container " + id_);
+        }
+        if (::kill(*pid_, signum) < 0) {
+            throw std::system_error(
+                errno,
+                std::system_category(),
+                "sending signal to pid " + std::to_string(*pid_));
+        }
+        return;
+    }
 
     if (state["status"] == "created" || state["status"] == "running") {
         if (::kill(state["pid"], signum) < 0 && errno != ESRCH) {

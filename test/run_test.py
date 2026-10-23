@@ -209,6 +209,39 @@ class test_run(unittest.TestCase):
             ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 99)
 
+    def test_kill_pid(self):
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "sleep 60 & echo $!; wait $!"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            self.start()
+            sleep_pid = int(stdout.readline())
+
+            # A process outside the container must not be signalled
+            with subprocess.Popen(["sleep", "60"]) as decoy:
+                try:
+                    ret = subprocess.run(
+                        args=[cmd, "kill", "--pid", str(decoy.pid),
+                              self.container_id, "KILL"],
+                        stderr=subprocess.DEVNULL)
+                    self.assertNotEqual(ret.returncode, 0)
+                    self.assertIsNone(decoy.poll())
+                finally:
+                    decoy.kill()
+
+            # Only the given process is signalled, not the container process
+            ret = subprocess.run(
+                args=[cmd, "kill", "--pid", str(sleep_pid),
+                      self.container_id, "KILL"])
+            self.assertEqual(ret.returncode, 0)
+            stdout.close()
+            stderr.close()
+            pid2, status = os.waitpid(pid, os.WEXITED)
+            self.assertEqual(status & 0xff, 0)
+            self.assertEqual(status >> 8, 128 + 9)
+
     def test_hook_prestart(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
