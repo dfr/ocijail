@@ -53,7 +53,7 @@ class test_create(unittest.TestCase):
         del c["ociVersion"]
         self.check_bad_config(c)
 
-        # ociVersion must be 1.0.x or 1.1.x
+        # ociVersion must be 1.0.x, 1.1.x, 1.2.x or 1.3.x
         c = self.config()
         c["ociVersion"] = "1.0.0"
         self.check_good_config(c)
@@ -68,6 +68,18 @@ class test_create(unittest.TestCase):
         c["ociVersion"] = "1.3.0"
         self.check_good_config(c)
         c["ociVersion"] = "1.4.0"
+        self.check_bad_config(c)
+        # Versions are compared numerically, not as strings
+        c["ociVersion"] = "1.10.0"
+        self.check_bad_config(c)
+        c["ociVersion"] = "2.0.0"
+        self.check_bad_config(c)
+        # Each part must be a number
+        c["ociVersion"] = "1.x.0"
+        self.check_bad_config(c)
+        c["ociVersion"] = "1.1.x"
+        self.check_bad_config(c)
+        c["ociVersion"] = "1..0"
         self.check_bad_config(c)
 
     def test_process(self):
