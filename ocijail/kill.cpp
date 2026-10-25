@@ -60,6 +60,7 @@ void kill::run() {
     auto state = app_.get_runtime_state(id_);
     auto lk = state.lock();
     state.load();
+    state.check_status();
 
     if (state["status"] == "created" || state["status"] == "running") {
         if (::kill(state["pid"], signum) < 0 && errno != ESRCH) {

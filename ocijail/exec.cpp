@@ -64,8 +64,12 @@ void exec::run() {
     auto state = app_.get_runtime_state(id_);
     auto lk = state.lock();
     state.load();
+    state.check_status();
 
-    auto j = jail::find(int(state["jid"]));
+    auto j = state.find_jail();
+    if (!j || (state["status"] != "created" && state["status"] != "running")) {
+        throw std::runtime_error("exec: container " + id_ + " is not running");
+    }
 
     if (detach_) {
         // Create a socket pair for coordinating create activities with
@@ -123,7 +127,7 @@ void exec::run() {
                 // Our part of exec: validate process args.
 
                 // Enter the jail and set the requested working directory.
-                j.attach();
+                j->attach();
 
                 // Validate the process executable exists and can be executed
                 proc.validate();
@@ -153,7 +157,7 @@ void exec::run() {
     } else {
         // Otherwise, just exec in this process
         auto [stdin_fd, stdout_fd, stderr_fd] = proc.pre_start();
-        j.attach();
+        j->attach();
         proc.validate();
         proc.exec(stdin_fd, stdout_fd, stderr_fd);
     }

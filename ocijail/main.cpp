@@ -142,9 +142,29 @@ runtime_state::locked_state runtime_state::lock() {
     return {true, fd};
 }
 
+std::optional<jail> runtime_state::find_jail() const {
+    if (!state_.contains("jid")) {
+        return std::nullopt;
+    }
+    std::string name{id_};
+    if (state_.contains("parent_jail")) {
+        name = state_["parent_jail"].get<std::string>() + "." + name;
+    }
+    try {
+        auto j = jail::find(name);
+        if (j.jid() == state_["jid"]) {
+            return j;
+        }
+    } catch (const std::system_error&) {
+    }
+    return std::nullopt;
+}
+
 void runtime_state::check_status() {
     if (state_["status"] == "created" || state_["status"] == "running") {
-        if (::kill(state_["pid"], 0) < 0 && errno == ESRCH) {
+        // Without its jail the container has stopped, and its pid may have
+        // been reused.
+        if (!find_jail() || (::kill(state_["pid"], 0) < 0 && errno == ESRCH)) {
             state_["status"] = "stopped";
             save();
         }

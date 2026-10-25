@@ -8,6 +8,8 @@
 #include "CLI/CLI.hpp"
 #include "nlohmann/json.hpp"
 
+#include "ocijail/jail.h"
+
 namespace ocijail {
 
 enum class log_format {
@@ -51,6 +53,11 @@ class runtime_state {
     }
     auto& get_state_dir() const { return state_dir_; }
     void check_status();
+
+    // The container's jail, unless it has gone away. Only a jail with the
+    // container's name and recorded jid counts, since the jid may have been
+    // reused, e.g. after a reboot.
+    std::optional<jail> find_jail() const;
 
     locked_state create();
     void remove_all();

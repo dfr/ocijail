@@ -188,6 +188,56 @@ class test_run(unittest.TestCase):
         self.assertEqual(out.strip(), "0011")
         os.umask(old_umask)
 
+    def test_stale_state(self):
+        # Simulate a container whose jail went away, e.g. in a reboot, after
+        # which its jid and pid were reused by something else.
+        c = self.config()
+        c["process"]["args"] = ["sleep", "60"]
+        other_jail = self.container_id + "_other"
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            stdout.close()
+            stderr.close()
+            subprocess.run(args=["jail", "-r", self.container_id], check=True)
+            os.waitpid(pid, os.WEXITED)
+
+            subprocess.run(
+                args=["jail", "-c", f"name={other_jail}", "persist", "path=/"],
+                check=True)
+            other = subprocess.Popen(args=["sleep", "60"])
+            try:
+                jid = int(subprocess.run(
+                    args=["jls", "-j", other_jail, "jid"],
+                    capture_output=True, check=True).stdout)
+                state_path = os.path.join(
+                    "/var/run/ocijail", self.container_id, "state.json")
+                with open(state_path) as f:
+                    state = json.load(f)
+                state["jid"] = jid
+                state["pid"] = other.pid
+                with open(state_path, "w") as f:
+                    json.dump(state, f)
+
+                ret = subprocess.run(
+                    args=[cmd, "state", self.container_id],
+                    capture_output=True)
+                self.assertEqual(json.loads(ret.stdout)["status"], "stopped")
+                ret = subprocess.run(
+                    args=[cmd, "exec", self.container_id, "sh"],
+                    capture_output=True)
+                self.assertNotEqual(ret.returncode, 0)
+                subprocess.run(args=[cmd, "kill", self.container_id, "KILL"])
+                self.delete()
+                self.assertIsNone(other.poll())
+                ret = subprocess.run(args=["jls", "-j", other_jail])
+                self.assertEqual(ret.returncode, 0)
+            finally:
+                other.kill()
+                other.wait()
+                subprocess.run(args=["jail", "-r", other_jail])
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
