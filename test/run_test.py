@@ -89,7 +89,7 @@ class test_run(unittest.TestCase):
                 proc.stderr = None
             ret = proc.wait()
             if ret != 0:
-                out = stderr.read().decode("utf-8")
+                out = stderr.read().decode("utf-8", errors="replace")
                 print(f"failed with stderr: {out}")
                 self.assertTrue(ret == expected_ret)
                 return -1, stdout, stderr
@@ -187,6 +187,49 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out.strip(), "0011")
         os.umask(old_umask)
+
+    def test_failed_create_cleanup(self):
+        # If create fails after mounting the volumes, here because the
+        # hostname is too long for the jail, it unmounts them and removes
+        # the state.
+        with tempfile.TemporaryDirectory() as root_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["root"]["readonly"] = True
+            c["hostname"] = "x" * 300
+            c["process"]["args"] = ["sh", "-c", "exit 0"]
+            c["process"]["env"] = ["PATH=/rescue"]
+            c["mounts"] = [{"type": "tmpfs", "destination": "/tmpdir"}]
+            ret, _, _ = self.run_with_config(c, expected_ret=1)
+            self.assertEqual(ret, 1)
+            state_dir = os.path.join("/var/run/ocijail", self.container_id)
+            self.assertFalse(os.path.exists(state_dir))
+            mounts = subprocess.run(
+                args=["mount"], capture_output=True).stdout.decode("utf-8")
+            self.assertNotIn(root_dir, mounts)
+            self.assertNotIn(state_dir, mounts)
+
+    def test_killed_create(self):
+        # A container left in the creating state by a create which was
+        # killed is reported as stopped and can be deleted.
+        state_dir = os.path.join("/var/run/ocijail", self.container_id)
+        os.makedirs(state_dir)
+        with open(os.path.join(state_dir, "state.json"), "w") as f:
+            json.dump({
+                "status": "creating",
+                "bundle": "/nonexistent",
+                "root_path": "/nonexistent",
+                "root_readonly": False,
+                "volumes_mounted": False,
+                "config": {"mounts": [{"destination": "/tmpdir"}]},
+            }, f)
+        ret = subprocess.run(
+            args=[cmd, "state", self.container_id], capture_output=True)
+        self.assertEqual(ret.returncode, 0, ret.stderr)
+        self.assertEqual(json.loads(ret.stdout)["status"], "stopped")
+        self.delete()
+        self.assertFalse(os.path.exists(state_dir))
 
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:

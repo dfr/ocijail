@@ -143,6 +143,12 @@ runtime_state::locked_state runtime_state::lock() {
 }
 
 void runtime_state::check_status() {
+    // create holds the lock until the container is created, so if we have
+    // it while the container is still being created, create has died.
+    if (state_["status"] == "creating") {
+        state_["status"] = "stopped";
+        save();
+    }
     if (state_["status"] == "created" || state_["status"] == "running") {
         if (::kill(state_["pid"], 0) < 0 && errno == ESRCH) {
             state_["status"] = "stopped";

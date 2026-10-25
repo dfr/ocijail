@@ -407,80 +407,123 @@ void create::run() {
     state["root_path"] = root_path;
     state["bundle"] = bundle_path_;
     state["config"] = config;
-    state["status"] = "created";
+    state["status"] = "creating";
     if (parent_jail) {
         state["parent_jail"] = *parent_jail;
     }
 
-    // Create the state here in case we have a readonly root
+    // Create the state here in case we have a readonly root. We save it as
+    // we go, so that if create is killed, delete can clean up after it.
     auto lk = state.create();
-
-    // Mount filesystems if requested and record unmount actions in the
-    // state.
-    //
-    // If rootfs needs to be remounted read-only, we make two passes. The first
-    // prepares mount points and the second completes the mounts in our
-    // read-only alias.
     state["root_readonly"] = false;
-    if (root_readonly) {
-        if (config_mounts.is_array()) {
-            mount_volumes(app_, state, root_path, true, config_mounts);
-        }
-        fs::create_directory(readonly_root_path);
-        std::vector<std::tuple<std::string, std::string>> mount_opts;
-        mount_opts.emplace_back("fstype", "nullfs");
-        mount_opts.emplace_back("fspath", readonly_root_path);
-        mount_opts.emplace_back("target", root_path);
-        if (do_mount(mount_opts, MNT_RDONLY) < 0) {
-            throw std::system_error(errno,
-                                    std::system_category(),
-                                    "mounting " + readonly_root_path.native());
-        }
-        root_path = readonly_root_path;
-        state["root_readonly"] = true;
-        state["readonly_root_path"] = readonly_root_path;
-    }
-    if (config_mounts.is_array()) {
-        mount_volumes(app_, state, root_path, false, config_mounts);
-    }
+    state["volumes_mounted"] = false;
+    state.save();
 
-    // Create the jail for our container. If we have a parent, attach
-    // to that first.
-    if (parent_jail) {
-        auto pj = jail::find(*parent_jail);
-        auto current_child_count = pj.get<uint32_t>("children.cur");
-        auto max_child_count = pj.get<uint32_t>("children.max");
-        if (current_child_count >= max_child_count) {
-            pj.set("children.max", current_child_count + 1);
+    // Undo whatever create has done if it fails.
+    std::optional<jail> created_jail;
+    bool volumes_mounted = false;
+    bool readonly_root_mounted = false;
+    auto cleanup = [&] {
+        if (created_jail) {
+            created_jail->remove();
         }
-    }
+        if (volumes_mounted) {
+            unmount_volumes(app_, state, root_path, config_mounts);
+        }
+        if (readonly_root_mounted) {
+            if (::unmount(root_path.c_str(), MNT_FORCE) < 0) {
+                throw std::system_error{errno,
+                                        std::system_category(),
+                                        "unmounting " + root_path.native()};
+            }
+        }
+        state.remove_all();
+    };
 
-    // Create a socket pair for coordinating create activities with
-    // our child process.
     int create_sock[2];
-    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, create_sock) < 0) {
-        throw std::system_error{
-            errno, std::system_category(), "error creating socket pair"};
-    }
-
-    auto j = jail::create(jconf);
-
-    // We record the container state including the bundle config. We
-    // need to create the start fifo before forking - this will be
-    // used to pause the container until start is called.
     auto start_wait = state.get_state_dir() / "start_wait";
-    if (mkfifo(start_wait.c_str(), 0600) < 0) {
-        throw std::system_error{
-            errno, std::system_category(), "error creating start fifo"};
-    }
+    try {
+        // Mount filesystems if requested and record unmount actions in the
+        // state.
+        //
+        // If rootfs needs to be remounted read-only, we make two passes. The
+        // first prepares mount points and the second completes the mounts in
+        // our read-only alias.
+        if (root_readonly) {
+            if (config_mounts.is_array()) {
+                mount_volumes(app_, state, root_path, true, config_mounts);
+            }
+            fs::create_directory(readonly_root_path);
+            std::vector<std::tuple<std::string, std::string>> mount_opts;
+            mount_opts.emplace_back("fstype", "nullfs");
+            mount_opts.emplace_back("fspath", readonly_root_path);
+            mount_opts.emplace_back("target", root_path);
+            if (do_mount(mount_opts, MNT_RDONLY) < 0) {
+                throw std::system_error(
+                    errno,
+                    std::system_category(),
+                    "mounting " + readonly_root_path.native());
+            }
+            root_path = readonly_root_path;
+            readonly_root_mounted = true;
+            state["root_readonly"] = true;
+            state["readonly_root_path"] = readonly_root_path;
+            state.save();
+        }
+        if (config_mounts.is_array()) {
+            mount_volumes(app_, state, root_path, false, config_mounts);
+            volumes_mounted = true;
+            state["volumes_mounted"] = true;
+            state.save();
+        }
 
+        // Create the jail for our container. If we have a parent, attach
+        // to that first.
+        if (parent_jail) {
+            auto pj = jail::find(*parent_jail);
+            auto current_child_count = pj.get<uint32_t>("children.cur");
+            auto max_child_count = pj.get<uint32_t>("children.max");
+            if (current_child_count >= max_child_count) {
+                pj.set("children.max", current_child_count + 1);
+            }
+        }
+
+        // Create a socket pair for coordinating create activities with
+        // our child process.
+        if (::socketpair(AF_UNIX, SOCK_STREAM, 0, create_sock) < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error creating socket pair"};
+        }
+
+        created_jail = jail::create(jconf);
+        state["jid"] = created_jail->jid();
+        state.save();
+
+        // We record the container state including the bundle config. We
+        // need to create the start fifo before forking - this will be
+        // used to pause the container until start is called.
+        if (mkfifo(start_wait.c_str(), 0600) < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error creating start fifo"};
+        }
+    } catch (const std::exception&) {
+        try {
+            cleanup();
+        } catch (const std::exception& e) {
+            app_.log_error(e);
+        }
+        throw;
+    }
+    auto j = *created_jail;
+
+    // The new status is saved once the container process exists.
+    state["status"] = "created";
     auto pid = ::fork();
     if (pid) {
         // Parent process - write to pid file if requested
         if (pid_file_) {
             std::ofstream{*pid_file_} << pid;
         }
-        state["jid"] = j.jid();
         state["pid"] = pid;
         state.save();
 
@@ -506,20 +549,9 @@ void create::run() {
                 errno, std::system_category(), "read from create socket"};
         }
         if (status != 0) {
-            // If the create failed, we need to clean up: unmount the volumes and
-            // delete the state.
-            j.remove();
-            if (config_mounts.is_array()) {
-                unmount_volumes(app_, state, root_path, config_mounts);
-            }
-            if (root_readonly) {
-                if (::unmount(root_path.c_str(), MNT_FORCE) > 0) {
-                    throw std::system_error{errno,
-                                            std::system_category(),
-                                            "unmounting " + root_path.native()};
-                }
-            }
-            state.remove_all();
+            // If the create failed, we need to clean up: unmount the volumes
+            // and delete the state.
+            cleanup();
         }
         ::exit(status);
     } else {

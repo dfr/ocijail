@@ -69,8 +69,11 @@ void delete_::run() {
         throw std::runtime_error(ss.str());
     }
 
-    auto j = jail::find(int(state["jid"]));
-    j.remove();
+    // A create which died may not have got as far as creating the jail.
+    if (state.contains("jid")) {
+        auto j = jail::find(int(state["jid"]));
+        j.remove();
+    }
 
     bool root_readonly = false;
     if (state.contains("root_readonly")) {
@@ -80,7 +83,13 @@ void delete_::run() {
     if (root_readonly) {
         root_path = fs::path{state["readonly_root_path"]};
     }
-    if (state["config"].contains("mounts") &&
+    // State saved by older versions doesn't record whether the volumes were
+    // mounted, but they always were.
+    bool volumes_mounted = true;
+    if (state.contains("volumes_mounted")) {
+        volumes_mounted = state["volumes_mounted"];
+    }
+    if (volumes_mounted && state["config"].contains("mounts") &&
         !state["config"]["mounts"].is_null()) {
         unmount_volumes(app_, state, root_path, state["config"]["mounts"]);
     }
