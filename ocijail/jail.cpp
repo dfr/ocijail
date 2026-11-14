@@ -14,7 +14,14 @@ namespace ocijail {
 
 void jail::config::set(const std::string& key, const value& val) {
     // Validate parameter types
-    if (key == "jid" || key == "devfs_ruleset" || key == "enforce_statfs") {
+    if (key == "jid") {
+        // jail ids are ints (jail_get(2)/jail_set(2)); jail::get/set pass
+        // the object's int jid_, which tripped the uint32_t assertion in
+        // builds without NDEBUG for every container with a parent jail.
+        assert(std::holds_alternative<int32_t>(val) ||
+               std::holds_alternative<uint32_t>(val));
+    } else if (key == "devfs_ruleset" || key == "enforce_statfs" ||
+               key == "children.cur" || key == "children.max") {
         assert(std::holds_alternative<uint32_t>(val));
     } else if (key == "ip4" || key == "ip6" || key == "sysvmsg" ||
                key == "sysvsem" || key == "sysvshm") {
@@ -25,7 +32,10 @@ void jail::config::set(const std::string& key, const value& val) {
         assert(std::holds_alternative<ns>(val) &&
                std::get<ns>(val) != DISABLED);
     } else if (key == "persist" || key.starts_with("allow.")) {
-        assert(std::holds_alternative<std::monostate>(val));
+        // monostate when creating ("set this flag"); uint32_t when read or
+        // updated through jail::get<bool>/jail::set on an existing jail.
+        assert(std::holds_alternative<std::monostate>(val) ||
+               std::holds_alternative<uint32_t>(val));
     } else {
         assert(std::holds_alternative<std::string>(val));
     }
