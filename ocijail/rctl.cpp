@@ -66,8 +66,10 @@ bool apply(const std::string& jail_name, const std::vector<std::string>& rules) 
     for (const auto& r : rules) {
         auto rule = "jail:" + jail_name + ":" + r;
         if (::rctl_add_rule(rule.c_str(), rule.size() + 1, nullptr, 0) < 0) {
-            if (errno == ENOSYS) {
-                return false;  // RACCT disabled (kern.racct.enable=0)
+            if (errno == ENOSYS || errno == EPERM) {
+                // ENOSYS: RACCT disabled (kern.racct.enable=0).
+                // EPERM: not allowed here, e.g. ocijail running in a jail.
+                return false;
             }
             throw std::system_error(
                 errno, std::system_category(), "rctl_add_rule " + rule);
@@ -79,8 +81,8 @@ bool apply(const std::string& jail_name, const std::vector<std::string>& rules) 
 void remove(const std::string& jail_name) {
     auto filter = "jail:" + jail_name;
     if (::rctl_remove_rule(filter.c_str(), filter.size() + 1, nullptr, 0) < 0) {
-        if (errno == ENOSYS || errno == ESRCH) {
-            return;
+        if (errno == ENOSYS || errno == ESRCH || errno == EPERM) {
+            return;  // no RACCT, no matching rules, or not permitted here
         }
         throw std::system_error(
             errno, std::system_category(), "rctl_remove_rule " + filter);

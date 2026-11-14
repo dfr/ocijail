@@ -37,14 +37,14 @@ struct translation {
 };
 translation from_oci_resources(const nlohmann::json& resources);
 
-// Add "jail:<jail_name>:<rule>" for each rule. Returns false (and adds
-// nothing) if RACCT/RCTL is unavailable (kern.racct.enable=0 -> ENOSYS);
-// throws on any other error.
+// Add "jail:<jail_name>:<rule>" for each rule. Returns false if RACCT/RCTL
+// is unavailable (kern.racct.enable=0 -> ENOSYS) or not permitted (EPERM,
+// e.g. when ocijail itself runs inside a jail); throws on any other error.
 bool apply(const std::string& jail_name, const std::vector<std::string>& rules);
 
 // Remove every rule whose subject is jail:<jail_name>. rctl rules are keyed
 // by jail *name* and outlive the jail, so this must run on delete. Missing
-// RACCT or "no matching rule" are not errors.
+// RACCT, "no matching rule" and EPERM are not errors.
 void remove(const std::string& jail_name);
 
 }  // namespace ocijail::rctl

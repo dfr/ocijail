@@ -465,7 +465,10 @@ void create::run() {
     auto j = jail::create(jconf);
 
     // Resource limits: translate OCI linux.resources into rctl rules on this
-    // jail. Rules are keyed by jail name and removed again in delete.
+    // jail. Rules are keyed by jail name (not jid) and outlive the jail, so
+    // first drop any stale rules left under this name (e.g. by a crash, or a
+    // delete done by an ocijail without rctl support); delete removes ours.
+    rctl::remove(jail_name);
     if (config.contains("linux") && config["linux"].contains("resources")) {
         auto t = rctl::from_oci_resources(config["linux"]["resources"]);
         for (const auto& ign : t.ignored) {
@@ -474,9 +477,9 @@ void create::run() {
         }
         try {
             if (!rctl::apply(jail_name, t.rules) && !t.rules.empty()) {
-                app_.log() << "warning: RACCT/RCTL disabled "
-                              "(kern.racct.enable=0), resource limits not "
-                              "enforced for " << jail_name;
+                app_.log() << "warning: rctl unavailable (kern.racct.enable=0, "
+                              "or not permitted in this jail), resource "
+                              "limits not enforced for " << jail_name;
             }
         } catch (...) {
             rctl::remove(jail_name);
