@@ -13,6 +13,18 @@ import sys
 import tempfile
 import unittest
 
+def racct_enabled():
+    try:
+        out = subprocess.run(["sysctl", "-n", "kern.racct.enable"],
+                             capture_output=True, text=True)
+        return out.stdout.strip() == "1"
+    except OSError:
+        return False
+
+def rctl_rules(subject):
+    out = subprocess.run(["rctl", subject], capture_output=True, text=True)
+    return sorted(line for line in out.stdout.splitlines() if line)
+
 cmd = "ocijail/ocijail"
 
 def recv_fds(sock, msglen, maxfds):
@@ -138,6 +150,71 @@ class test_run(unittest.TestCase):
         c["process"]["args"] = ["sh", "-c", "exit 42"]
         ret, _, _ = self.run_with_config(c)
         self.assertEqual(ret, 42)
+
+    @unittest.skipUnless(racct_enabled(), "needs kern.racct.enable=1")
+    def test_resources_rctl_rules(self):
+        # OCI linux.resources become rctl rules on the container's jail,
+        # and are removed again by delete.
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "exit 0"]
+        c["linux"] = {"resources": {
+            "memory": {"limit": 64 << 20},
+            "cpu": {"quota": 50000, "period": 100000, "shares": 512},
+            "pids": {"limit": 100},
+        }}
+        subject = f"jail:{self.container_id}"
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            self.assertEqual(rctl_rules(subject), sorted([
+                f"{subject}:maxproc:deny=100",
+                f"{subject}:memoryuse:sigkill=67108864",
+                f"{subject}:pcpu:deny=50",
+            ]))
+            self.start()
+            os.waitpid(pid, os.WEXITED)
+            stdout.close()
+            stderr.close()
+            self.delete()
+        self.assertEqual(rctl_rules(subject), [])
+
+    @unittest.skipUnless(racct_enabled(), "needs kern.racct.enable=1")
+    def test_resources_memory_kill(self):
+        # A container whose resident memory exceeds memory.limit is killed
+        # (racctd checks once per second, hence the sleep).
+        c = self.config()
+        c["process"]["args"] = [
+            sys.executable, "-c",
+            "import time; b = bytearray(256 << 20); time.sleep(10)",
+        ]
+        c["linux"] = {"resources": {"memory": {"limit": 64 << 20}}}
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            self.start()
+            _, status = os.waitpid(pid, os.WEXITED)
+            stdout.close()
+            stderr.close()
+        self.assertTrue(os.WIFSIGNALED(status))
+        self.assertEqual(os.WTERMSIG(status), 9)
+
+    @unittest.skipUnless(racct_enabled(), "needs kern.racct.enable=1")
+    def test_resources_stale_rules(self):
+        # rctl rules are keyed by jail name and outlive the jail; create must
+        # not let a new container inherit rules left under its name.
+        subject = f"jail:{self.container_id}"
+        subprocess.run(["rctl", "-a", f"{subject}:openfiles:deny=1000"],
+                       check=True)
+        try:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", "exit 0"]
+            ret, _, _ = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            self.assertEqual(rctl_rules(subject), [])
+        finally:
+            subprocess.run(["rctl", "-r", subject], capture_output=True)
 
     def test_stdout(self):
         c = self.config()

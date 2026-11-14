@@ -9,6 +9,7 @@
 #include "hook.h"
 #include "jail.h"
 #include "mount.h"
+#include "ocijail/rctl.h"
 
 namespace fs = std::filesystem;
 
@@ -71,6 +72,9 @@ void delete_::run() {
 
     auto j = jail::find(int(state["jid"]));
     j.remove();
+    if (auto& jail_name = state["jail_name"]; jail_name.is_string()) {
+        rctl::remove(jail_name.get<std::string>());
+    }
 
     bool root_readonly = false;
     if (state.contains("root_readonly")) {

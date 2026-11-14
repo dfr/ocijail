@@ -29,6 +29,8 @@ cc_binary(
         "mount.h",
         "process.cpp",
         "process.h",
+        "rctl.cpp",
+        "rctl.h",
         "start.cpp",
         "start.h",
         "state.cpp",
@@ -41,4 +43,11 @@ cc_binary(
         "@nlohmann_json//:json",
     ],
     visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "rctl_test",
+    copts = ["-std=c++20"],
+    srcs = ["rctl_test.cpp", "rctl.cpp", "rctl.h"],
+    deps = ["@nlohmann_json//:json"],
 )
