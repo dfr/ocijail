@@ -207,11 +207,14 @@ class test_run(unittest.TestCase):
         subject = f"jail:{self.container_id}"
         subprocess.run(["rctl", "-a", f"{subject}:openfiles:deny=1000"],
                        check=True)
-        c = self.config()
-        c["process"]["args"] = ["sh", "-c", "exit 0"]
-        ret, _, _ = self.run_with_config(c)
-        self.assertEqual(ret, 0)
-        self.assertEqual(rctl_rules(subject), [])
+        try:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", "exit 0"]
+            ret, _, _ = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            self.assertEqual(rctl_rules(subject), [])
+        finally:
+            subprocess.run(["rctl", "-r", subject], capture_output=True)
 
     def test_stdout(self):
         c = self.config()
