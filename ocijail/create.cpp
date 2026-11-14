@@ -14,6 +14,7 @@
 #include "ocijail/create.h"
 #include "ocijail/hook.h"
 #include "ocijail/jail.h"
+#include "ocijail/rctl.h"
 #include "ocijail/mount.h"
 #include "ocijail/process.h"
 #include "ocijail/tty.h"
@@ -303,11 +304,8 @@ void create::run() {
 
     // Create a jail config from the OCI config
     jail::config jconf;
-    if (parent_jail) {
-        jconf.set("name", *parent_jail + "." + id_);
-    } else {
-        jconf.set("name", id_);
-    }
+    const std::string jail_name = parent_jail ? *parent_jail + "." + id_ : id_;
+    jconf.set("name", jail_name);
     jconf.set("persist");
     jconf.set("enforce_statfs", 1u);
     jconf.set("allow.raw_sockets");
@@ -411,6 +409,7 @@ void create::run() {
     if (parent_jail) {
         state["parent_jail"] = *parent_jail;
     }
+    state["jail_name"] = jail_name;
 
     // Create the state here in case we have a readonly root
     auto lk = state.create();
@@ -464,6 +463,27 @@ void create::run() {
     }
 
     auto j = jail::create(jconf);
+
+    // Resource limits: translate OCI linux.resources into rctl rules on this
+    // jail. Rules are keyed by jail name and removed again in delete.
+    if (config.contains("linux") && config["linux"].contains("resources")) {
+        auto t = rctl::from_oci_resources(config["linux"]["resources"]);
+        for (const auto& ign : t.ignored) {
+            app_.log() << "warning: resource " << ign
+                       << " is not supported on FreeBSD, ignoring";
+        }
+        try {
+            if (!rctl::apply(jail_name, t.rules) && !t.rules.empty()) {
+                app_.log() << "warning: RACCT/RCTL disabled "
+                              "(kern.racct.enable=0), resource limits not "
+                              "enforced for " << jail_name;
+            }
+        } catch (...) {
+            rctl::remove(jail_name);
+            j.remove();
+            throw;
+        }
+    }
 
     // We record the container state including the bundle config. We
     // need to create the start fifo before forking - this will be
