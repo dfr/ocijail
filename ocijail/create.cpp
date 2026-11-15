@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <cctype>
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
@@ -221,6 +222,8 @@ void create::run() {
     std::optional<std::string> ip4_addr;
     std::optional<std::string> ip6_addr;
     std::vector<std::string> allow_params;
+    std::optional<uint32_t> children_max;
+    std::optional<uint32_t> devfs_ruleset;
 
     std::unordered_map<std::string, std::optional<jail::ns>> known_ns_params = {
         {"org.freebsd.jail.vnet", std::nullopt},
@@ -299,6 +302,33 @@ void create::run() {
                 }
             }
         }
+
+        // Numeric jail parameters a container may ask for. children.max
+        // lets it create its own jails (podman inside a container); a jail
+        // can only mount devfs with its own devfs_ruleset.
+        auto uint_annotation = [&](const std::string& key,
+                                   std::optional<uint32_t>& out) {
+            if (!config_annotations.contains(key) ||
+                !config_annotations[key].is_string()) {
+                return;
+            }
+            std::string val = config_annotations[key];
+            if (val.empty() || !std::isdigit(static_cast<unsigned char>(val[0]))) {
+                throw std::runtime_error("bad value for " + key + ": " + val);
+            }
+            try {
+                std::size_t pos = 0;
+                auto n = std::stoul(val, &pos);
+                if (pos != val.size() || n > UINT32_MAX) {
+                    throw std::invalid_argument(val);
+                }
+                out = static_cast<uint32_t>(n);
+            } catch (const std::exception&) {
+                throw std::runtime_error("bad value for " + key + ": " + val);
+            }
+        };
+        uint_annotation("org.freebsd.jail.children.max", children_max);
+        uint_annotation("org.freebsd.jail.devfs_ruleset", devfs_ruleset);
     }
 
     // Create a jail config from the OCI config
@@ -325,6 +355,12 @@ void create::run() {
     }
     for (const auto& param : allow_params) {
         jconf.set(param);
+    }
+    if (children_max) {
+        jconf.set("children.max", *children_max);
+    }
+    if (devfs_ruleset) {
+        jconf.set("devfs_ruleset", *devfs_ruleset);
     }
     if (root_readonly) {
         jconf.set("path", readonly_root_path);

@@ -381,6 +381,27 @@ class test_create(unittest.TestCase):
             c["annotations"] = {name: "inherit"}
             self.check_good_config(c)
 
+    def test_numeric_annotations(self):
+        c = self.config()
+
+        for param in ["children.max", "devfs_ruleset"]:
+            name = "org.freebsd.jail." + param
+            c["annotations"] = {name: "0"}
+            self.check_good_config(c)
+            c["annotations"] = {name: "16"}
+            self.check_good_config(c)
+            c["annotations"] = {name: "4294967295"}
+            self.check_good_config(c)
+
+            # Not a number, trailing junk, negative, out of range, empty
+            for val in ["many", "16x", "-1", "4294967296", ""]:
+                c["annotations"] = {name: val}
+                self.check_bad_config(c)
+
+            # Non-string annotation value is silently ignored
+            c["annotations"] = {name: 16}
+            self.check_good_config(c)
+
 
 if __name__ == "__main__":
     unittest.main()
